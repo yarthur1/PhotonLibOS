@@ -373,7 +373,7 @@ namespace fs
                     break;
 #ifdef PHOTON_URING
                 case ioengine_iouring:
-                    _ctor = &file_ctor<iouring>;
+                    _ctor = &file_ctor<iouring>;    // 对应iouring-wrapper里的结构
                     break;
 #endif
 #endif
@@ -619,7 +619,7 @@ namespace fs
         return sfs;
     }
 
-    IFile* new_localfile_adaptor(int fd, int io_engine_type)
+    IFile* new_localfile_adaptor(int fd, int io_engine_type)    //  io_uring对应 AioFileAdaptor<io_uring>
     {
         if (fd < 0)
             LOG_ERROR_RETURN(EINVAL, nullptr, "invalid fd: ", fd);

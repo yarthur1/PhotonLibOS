@@ -49,7 +49,7 @@ int init(uint64_t event_engine, uint64_t io_engine) {
 
     if (event_engine != INIT_EVENT_NONE) {
         bool ok = false;
-        for (auto each : recommended_order) {
+        for (auto each : recommended_order) {   // 需要指定INIT_EVENT_IOURING  默认会用epoll
             if ((each & event_engine) && fd_events_init(each) == 0) {
                 ok = true;
                 break;

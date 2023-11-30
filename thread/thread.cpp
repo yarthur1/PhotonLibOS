@@ -434,7 +434,7 @@ namespace photon
     // background vCPUs, and makes the foreground as fast as possible.
     // Generic spinlock uses atomic exchange to obtain the lock, which
     // depends on bus lock and costs much CPU cycles than this design.
-    class asymmetric_spinLock {
+    class asymmetric_spinLock {    //  前台后台？
         // TODO: better place the two atomics in separate cache line?
         std::atomic_bool foreground_locked {false},
                          background_locked {false};
@@ -544,10 +544,10 @@ namespace photon
 
     class RunQ {
     public:
-        thread** pc = &CURRENT;
-        mutable thread* current;
+        thread** pc = &CURRENT;    // CURRENT何时初始化
+        mutable thread* current;   // current的值等于CURRENT
         RunQ() {
-            asm volatile ("" : "=r"(pc) : "0"(pc));
+            asm volatile ("" : "=r"(pc) : "0"(pc));   // 防止pc在构造函数执行过程中被编译器优化掉
             current = *pc;
         }
     };
@@ -569,7 +569,7 @@ namespace photon
         }
         ~AtomicRunQ() {
             if (update_current)
-                *pc = current;
+                *pc = current;    // 修改CURRENT
             plock->foreground_unlock();
         }
         static void prefetch_context(thread* from, thread* to)
@@ -1164,7 +1164,7 @@ R"(
         assert(!AtomicRunQ().single());
         auto sw = AtomicRunQ().goto_next();
         if_update_now();
-        switch_context(sw.from, sw.to);
+        switch_context(sw.from, sw.to);   // 切换到其他协程执行
     }
 
     void thread_yield_fast() {
@@ -1874,7 +1874,7 @@ R"(
         if (unlikely(err))
             LOG_ERROR_RETURN(err, -1, "Failed to allocate vcpu ", ERRNO(err));
 
-        auto th = *rq.pc = new thread;
+        auto th = *rq.pc = new thread;   // CURRENT指向new协程
         th->vcpu = (vcpu_t*)ptr;
         th->state = states::RUNNING;
         th->init_main_thread_stack();

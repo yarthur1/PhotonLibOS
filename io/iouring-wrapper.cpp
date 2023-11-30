@@ -165,19 +165,19 @@ public:
     }
 
     int32_t _async_io(io_uring_sqe* sqe, uint64_t timeout, uint32_t ring_flags) {
-        sqe->flags |= (uint8_t) (ring_flags & 0xff);
+        sqe->flags |= (uint8_t) (ring_flags & 0xff);   // prep调用后还是能设置sqe
         ioCtx io_ctx(false, false);
-        io_uring_sqe_set_data(sqe, &io_ctx);
+        io_uring_sqe_set_data(sqe, &io_ctx);    // 设置用户数据
 
         ioCtx timer_ctx(true, false);
         __kernel_timespec ts{};
         if (timeout < std::numeric_limits<int64_t>::max()) {
-            sqe->flags |= IOSQE_IO_LINK;
+            sqe->flags |= IOSQE_IO_LINK;     // 标记link的开始，没有这个标记为尾部
             usec_to_timespec(timeout, &ts);
-            sqe = _get_sqe();
+            sqe = _get_sqe();      // 获取新的sqe
             if (sqe == nullptr)
                 return -1;
-            io_uring_prep_link_timeout(sqe, &ts, 0);
+            io_uring_prep_link_timeout(sqe, &ts, 0);  // 前面的请求在超时之前完成，这个超时请求会取消，如果超时，未完成的请求会被取消
             io_uring_sqe_set_data(sqe, &timer_ctx);
         }
 
@@ -199,7 +199,7 @@ public:
             if (sqe == nullptr)
                 return -1;
             ioCtx cancel_ctx(true, false);
-            io_uring_prep_cancel(sqe, &io_ctx, 0);
+            io_uring_prep_cancel(sqe, &io_ctx, 0);  // 取消用户数据标识的请求
             io_uring_sqe_set_data(sqe, &cancel_ctx);
             photon::thread_sleep(-1);
             errno = err_backup.no;
@@ -324,17 +324,17 @@ public:
         usec_to_timespec(timeout, &ts);
 
         io_uring_cqe* cqe = nullptr;
-        if (m_submit_wait_func(m_ring, &ts, &cqe) != 0) {
+        if (m_submit_wait_func(m_ring, &ts, &cqe) != 0) {  // 等待请求完成
             return -1;
         }
 
         uint32_t head = 0;
         unsigned i = 0;
-        io_uring_for_each_cqe(m_ring, head, cqe) {
+        io_uring_for_each_cqe(m_ring, head, cqe) {     // 遍历完成队列
             i++;
             auto ctx = (ioCtx*) io_uring_cqe_get_data(cqe);
             if (!ctx) {
-                // Own timeout doesn't have user data
+                // Own timeout doesn't have user data    submit_wait_by_timer
                 continue;
             }
 
@@ -349,7 +349,7 @@ public:
                 // The cqe for notify, corresponding to IORING_CQE_F_MORE
                 if (unlikely(cqe->res != 0))
                     LOG_WARN("iouring: send_zc fall back to copying");
-                photon::thread_interrupt(ctx->th_id, EOK);
+                photon::thread_interrupt(ctx->th_id, EOK);    // 唤醒协程?
                 continue;
             }
 
@@ -373,7 +373,7 @@ public:
             photon::thread_interrupt(ctx->th_id, EOK);
         }
 
-        io_uring_cq_advance(m_ring, i);
+        io_uring_cq_advance(m_ring, i);  // 标记消费完成
         return 0;
     }
 

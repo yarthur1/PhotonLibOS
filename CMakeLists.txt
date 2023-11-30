@@ -7,18 +7,18 @@ project(
 )
 
 # Utility Modules and Find Modules
-include(FindPackageHandleStandardArgs)
+include(FindPackageHandleStandardArgs)   # 引入模块和宏
 include(CheckCXXCompilerFlag)
 include(FetchContent)
 include(ProcessorCount)
 include(ExternalProject)
-include(CMake/build-from-src.cmake)
-find_package(PkgConfig REQUIRED)
+include(CMake/build-from-src.cmake)    # 引入其他cmake文件
+find_package(PkgConfig REQUIRED)   # 查找包并设置对应的头文件和库文件目录变量
 
 # Options
-set(PHOTON_CXX_STANDARD "14" CACHE STRING "C++ standard")
+set(PHOTON_CXX_STANDARD "14" CACHE STRING "C++ standard")   #设置变量的值
 option(PHOTON_BUILD_TESTING "enable build testing" OFF)
-option(PHOTON_ENABLE_URING "enable io_uring function" OFF)
+option(PHOTON_ENABLE_URING "enable io_uring function" OFF)   #
 option(PHOTON_ENABLE_FUSE "enable fuse function" OFF)
 option(PHOTON_ENABLE_SASL "enable sasl" OFF)
 option(PHOTON_ENABLE_MIMIC_VDSO "enable mimic vdso" OFF)
@@ -88,8 +88,8 @@ if(CCACHE_FOUND)
 endif(CCACHE_FOUND)
 
 # CMake dirs
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMake)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/output)
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMake)   # 源代码目录的路径，即包含CMakeLists.txt文件的目录
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/output) # 项目的构建目录
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/output)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/output)
 
@@ -146,7 +146,7 @@ endforeach ()
 
 add_subdirectory(third_party)
 
-# Compile photon objects
+# Compile photon objects   将符合指定模式的文件列表保存到变量中
 file(GLOB PHOTON_SRC
         photon.cpp
         common/*.cpp
@@ -195,11 +195,11 @@ if (PHOTON_ENABLE_EXTFS)
 endif ()
 
 # An object library compiles source files but does not archive or link their object files.
-add_library(photon_obj OBJECT ${PHOTON_SRC})
+add_library(photon_obj OBJECT ${PHOTON_SRC})  # 对象库？
 target_include_directories(photon_obj PRIVATE include ${OPENSSL_INCLUDE_DIRS} ${AIO_INCLUDE_DIRS}
-        ${ZLIB_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS}
+        ${ZLIB_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS}  # 指定头文件搜索路径
 )
-target_compile_definitions(photon_obj PRIVATE _FILE_OFFSET_BITS=64 FUSE_USE_VERSION=29)
+target_compile_definitions(photon_obj PRIVATE _FILE_OFFSET_BITS=64 FUSE_USE_VERSION=29)  # 定义编译时的宏定义
 if (PHOTON_ENABLE_URING)
     target_include_directories(photon_obj PRIVATE ${URING_INCLUDE_DIRS})
     target_compile_definitions(photon_obj PRIVATE PHOTON_URING=on)
