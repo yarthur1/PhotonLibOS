@@ -68,7 +68,7 @@ public:
     void enqueue(Delegate<void> call) { ring.send<PhotonPause>(call); }
 
     template <typename Context>
-    void do_call(Delegate<void> call) {
+    void do_call(Delegate<void> call) {  // 同步执行
         Awaiter<Context> aop;
         auto task = [call, &aop] {
             call();
@@ -83,7 +83,7 @@ public:
         return vcpus.size();
     }
 
-    void worker_thread_routine(int ev_engine, int io_engine) {
+    void worker_thread_routine(int ev_engine, int io_engine) {   // 初始化photon环境
         photon::init(ev_engine, io_engine);
         DEFER(photon::fini());
         main_loop();
@@ -106,22 +106,22 @@ public:
         add_vcpu();
         DEFER(remove_vcpu());
         photon::ThreadPoolBase *pool = nullptr;
-        if (mode > 0) pool = photon::new_thread_pool(mode);
+        if (mode > 0) pool = photon::new_thread_pool(mode);   // 协程池 保留一定数量的常驻协程?
         DEFER(if (pool) delete_thread_pool(pool));
         ready_vcpu.signal(1);
         for (;;) {
-            auto task = ring.recv();
+            auto task = ring.recv();    // 当前线程正在执行其他协程(忙)，不会获取新的任务
             if (!task) break;
             if (mode < 0) {
-                task();
-            } else if (mode == 0) {
+                task();    // 两个协程，current和idle    do_thread_migrate可以迁移协程到当前线程?
+            } else if (mode == 0) {   // 每次重新创建协程,和current协程同级
                 auto th = photon::thread_create(
                     &WorkPool::impl::delegate_helper, &task);
                 photon::thread_yield_to(th);
             } else {
-                auto th = pool->thread_create(&WorkPool::impl::delegate_helper,
+                auto th = pool->thread_create(&WorkPool::impl::delegate_helper,   // 创建的协程同样和current同级
                                               &task);
-                photon::thread_yield_to(th);
+                photon::thread_yield_to(th);   // cpu执行当前th
             }
         }
     }

@@ -80,7 +80,7 @@ int socket(int domain, int type, int protocol) {
     return ::socket(domain, type | SOCK_NONBLOCK, protocol);
 #endif
 }
-int connect(int fd, const struct sockaddr *addr, socklen_t addrlen,
+int connect(int fd, const struct sockaddr *addr, socklen_t addrlen,   // 建立连接的过程也可以noblock
             uint64_t timeout) {
     int err = 0;
     while (true) {
@@ -93,7 +93,7 @@ int connect(int fd, const struct sockaddr *addr, socklen_t addrlen,
                 continue;
             }
             if (e == EINPROGRESS || (e == EADDRINUSE && err == 1)) {
-                ret = photon::wait_for_fd_writable(fd, timeout);
+                ret = photon::wait_for_fd_writable(fd, timeout);  // 和master engine相关
                 if (ret < 0) return -1;
                 socklen_t n = sizeof(err);
                 ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &n);
@@ -125,7 +125,7 @@ int accept(int fd, struct sockaddr *addr, socklen_t *addrlen,
                   LAMBDA_TIMEOUT(photon::wait_for_fd_readable(fd, timeout)));
 #endif
 }
-ssize_t read(int fd, void *buf, size_t count, uint64_t timeout) {
+ssize_t read(int fd, void *buf, size_t count, uint64_t timeout) {   // 网络io如何读取数据
     return doio(LAMBDA(::read(fd, buf, count)),
                 LAMBDA_TIMEOUT(photon::wait_for_fd_readable(fd, timeout)));
 }

@@ -231,7 +231,7 @@ namespace rpc
         void reduce(AR& ar, T& x, Ts&...xs)
         {
             ar.process_field(x);
-            reduce(ar, xs...);
+            reduce(ar, xs...);   // 递归处理field
         }
     };
 
@@ -388,7 +388,7 @@ namespace rpc
 
         void process_field(buffer& x)
         {
-            if (iov.back_free_iovcnt() > 0) {
+            if (iov.back_free_iovcnt() > 0) {  // end,capcity
                 if (x.size()>0)
                     iov.push_back(x.addr(), x.size());
             } else {
@@ -408,7 +408,7 @@ namespace rpc
         }
 
         template<typename T>
-        void serialize(T& x)
+        void serialize(T& x)   // 序列化x
         {
             static_assert(
                 std::is_base_of<Message, T>::value,
@@ -416,11 +416,11 @@ namespace rpc
 
             // serialize aligned fields, non-aligned fields, and the main body
             auto aligned = FilterAlignedFields(this, true);
-            x.process_fields(aligned);
+            x.process_fields(aligned);   // __example__operation1__ reduce(ar,..xs) xs有哪些字段由T类型定义process_fields指定
             auto non_aligned = FilterAlignedFields(this, false);
             x.process_fields(non_aligned);
             buffer msg(&x, sizeof(x));
-            d()->process_field(msg);
+            d()->process_field(msg);   // 调用这个类定义的process_field
             x.add_checksum(&iov);
         }
     };

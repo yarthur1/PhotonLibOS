@@ -31,7 +31,7 @@ public:
     {
         return __prev_ptr == this || __next_ptr == this;
     }
-    __intrusive_list_node* remove_from_list()
+    __intrusive_list_node* remove_from_list()   // 将当前节点从list剔除，并返回next节点，当前节点没有释放，next pre都指向自身
     {
         if (single())
             return nullptr;
@@ -42,7 +42,7 @@ public:
         __prev_ptr = __next_ptr = this;
         return next;
     }
-    void insert_before(__intrusive_list_node* ptr)
+    void insert_before(__intrusive_list_node* ptr)  // a insert_before b b放到a之前，并且b为single
     {
         ptr->insert_between(__prev_ptr, this);
     }
@@ -54,7 +54,7 @@ public:
     {
         ptr->insert_between(this, __next_ptr);
     }
-    void insert_list_before(__intrusive_list_node* ptr)
+    void insert_list_before(__intrusive_list_node* ptr)   // ptr节点放到当前节点__prev_ptr之后；当前节点放到ptr前向节点之后
     {
         ptr->insert_list_between(__prev_ptr, this);
     }
@@ -87,15 +87,15 @@ public:
     }
 
 private:
-    void insert_between(__intrusive_list_node* prev, __intrusive_list_node* next)
+    void insert_between(__intrusive_list_node* prev, __intrusive_list_node* next)  // 自身放到prev和next之间
     {
-        if (!single()) return;
+        if (!single()) return;   // 自身必须为single
         prev->__next_ptr = this;
         next->__prev_ptr = this;
         __prev_ptr = prev;
         __next_ptr = next;
     }
-    void insert_list_between(__intrusive_list_node* prev, __intrusive_list_node* next)
+    void insert_list_between(__intrusive_list_node* prev, __intrusive_list_node* next)   // 当前节点a开头的列表放到prev列表后；a的前向节点b连接到next列表
     {
         auto a = this;
         auto b = __prev_ptr;
@@ -112,7 +112,7 @@ class intrusive_list_node : public __intrusive_list_node
 public:
     T* remove_from_list()
     {
-        auto ret = __intrusive_list_node::remove_from_list();
+        auto ret = __intrusive_list_node::remove_from_list();   // 返回 next
         return static_cast<T*>(ret);
     }
     void insert_before(T* ptr)
@@ -188,14 +188,14 @@ public:
         {
             return static_cast<T*>(ptr);
         }
-        iterator& operator++()
+        iterator& operator++()  // ++a
         {
             ptr = ptr->__next_ptr;
             if (ptr == end)
                 ptr = nullptr;
             return *this;
         }
-        iterator operator++(int)
+        iterator operator++(int)   // a++
         {
             auto rst = *this;
             ptr = ptr->__next_ptr;
@@ -228,7 +228,7 @@ template<typename NodeType>
 class intrusive_list
 {
 public:
-    NodeType* node = nullptr;
+    NodeType* node = nullptr;   // node代表head
     intrusive_list() = default;
     explicit intrusive_list(NodeType* node): node(node) {}
     ~intrusive_list()
@@ -296,7 +296,7 @@ public:
     NodeType* erase(NodeType* ptr)
     {
         auto nx = ptr->remove_from_list();
-        if (ptr == node)
+        if (ptr == node)  //如果要erase是head
             node = nx;
         return nx;
     }

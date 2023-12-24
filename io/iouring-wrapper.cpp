@@ -68,9 +68,9 @@ public:
         if (setrlimit(RLIMIT_MEMLOCK, &resource_limit) != 0) {
             LOG_ERROR_RETURN(0, -1, "iouring: failed to set resource limit. Use command `ulimit -l unlimited`, or change to root");
         }
-        check_register_file_support();
+        check_register_file_support();   // 注意系统版本
         check_cooperative_task_support();
-        set_submit_wait_function();
+        set_submit_wait_function();   // 设置wait func
 
         m_ring = new io_uring{};
         io_uring_params params{};
@@ -128,10 +128,10 @@ public:
 
         if (m_master) {
             // Setup a multishot poll on master engine to watch the cancel_wait
-            uint32_t poll_mask = evmap.translate_bitwisely(EVENT_READ);
+            uint32_t poll_mask = evmap.translate_bitwisely(EVENT_READ);  // 读事件
             auto sqe = _get_sqe();
             if (!sqe) return -1;
-            io_uring_prep_poll_multishot(sqe, m_eventfd, poll_mask);
+            io_uring_prep_poll_multishot(sqe, m_eventfd, poll_mask);   // 多次接收事件
             io_uring_sqe_set_data(sqe, this);
             ret = io_uring_submit(m_ring);
             if (ret <= 0) {
@@ -165,8 +165,8 @@ public:
     }
 
     int32_t _async_io(io_uring_sqe* sqe, uint64_t timeout, uint32_t ring_flags) {
-        sqe->flags |= (uint8_t) (ring_flags & 0xff);   // prep调用后还是能设置sqe
-        ioCtx io_ctx(false, false);
+        sqe->flags |= (uint8_t) (ring_flags & 0xff);   // prep调用后还是能设置sqe 低八位  39-32
+        ioCtx io_ctx(false, false);      // ioCtx(bool canceller, bool event)
         io_uring_sqe_set_data(sqe, &io_ctx);    // 设置用户数据
 
         ioCtx timer_ctx(true, false);
@@ -181,20 +181,20 @@ public:
             io_uring_sqe_set_data(sqe, &timer_ctx);
         }
 
-        photon::thread_sleep(-1);
+        photon::thread_sleep(-1);   // 目前还没有提交io请求，wait_and_fire_events批量提交
 
-        if (likely(errno == EOK)) {
+        if (likely(errno == EOK)) {   // errno本身线程安全 thread local;即使读取写入超时，只是io_ctx.res<0；
             // Interrupted by `wait_and_fire_events`
-            if (io_ctx.res < 0) {
+            if (io_ctx.res < 0) {    // 读取超时或其他错误
                 errno = -io_ctx.res;
                 return -1;
             } else {
                 // errno = 0;
                 return io_ctx.res;
             }
-        } else {
+        } else {     // errno只是系统调用失败才会设置
             // Interrupted by external user thread. Try to cancel the previous I/O
-            ERRNO err_backup;
+            ERRNO err_backup;   // 记录当前errno
             sqe = _get_sqe();
             if (sqe == nullptr)
                 return -1;
@@ -210,7 +210,7 @@ public:
     int wait_for_fd(int fd, uint32_t interests, uint64_t timeout) override {
         unsigned poll_mask = evmap.translate_bitwisely(interests);
         // The io_uring_prep_poll_add's return value is the same as poll(2)'s revents.
-        int ret = async_io(&io_uring_prep_poll_add, timeout, 0, fd, poll_mask);
+        int ret = async_io(&io_uring_prep_poll_add, timeout, 0, fd, poll_mask);   // prepares a poll request
         if (ret < 0) {
             return -1;
         }
@@ -227,7 +227,7 @@ public:
 
         bool one_shot = e.interests & ONE_SHOT;
         fdInterest fd_interest{e.fd, (uint32_t)evmap.translate_bitwisely(e.interests)};
-        ioCtx io_ctx(false, true);
+        ioCtx io_ctx(false, true);   // 记录了当前协程
         eventCtx event_ctx{e, one_shot, io_ctx};
         auto pair = m_event_contexts.insert({fd_interest, event_ctx});
         if (!pair.second) {
@@ -258,7 +258,7 @@ public:
             LOG_ERROR_RETURN(0, -1, "iouring: event is either non-existent or one-shot finished");
         }
 
-        io_uring_prep_poll_remove(sqe, (__u64) &iter->second.io_ctx);
+        io_uring_prep_poll_remove(sqe, (__u64) &iter->second.io_ctx);  // 使用用户数据唯一标识请求
         io_uring_sqe_set_data(sqe, nullptr);
         int ret = io_uring_submit(m_ring);
         if (ret < 0) {
@@ -267,9 +267,9 @@ public:
         return 0;
     }
 
-    ssize_t wait_for_events(void** data, size_t count, uint64_t timeout = -1) override {
+    ssize_t wait_for_events(void** data, size_t count, uint64_t timeout = -1) override {   // eventfd
         // Use master engine to wait for self event fd
-        int ret = get_vcpu()->master_event_engine->wait_for_fd_readable(m_eventfd, timeout);
+        int ret = get_vcpu()->master_event_engine->wait_for_fd_readable(m_eventfd, timeout);  // 会提交io请求
         if (ret < 0) {
             return errno == ETIMEDOUT ? 0 : -1;
         }
@@ -324,7 +324,7 @@ public:
         usec_to_timespec(timeout, &ts);
 
         io_uring_cqe* cqe = nullptr;
-        if (m_submit_wait_func(m_ring, &ts, &cqe) != 0) {  // 等待请求完成
+        if (m_submit_wait_func(m_ring, &ts, &cqe) != 0) {  // 批量提交，等待请求完成
             return -1;
         }
 
@@ -349,7 +349,7 @@ public:
                 // The cqe for notify, corresponding to IORING_CQE_F_MORE
                 if (unlikely(cqe->res != 0))
                     LOG_WARN("iouring: send_zc fall back to copying");
-                photon::thread_interrupt(ctx->th_id, EOK);    // 唤醒协程?
+                photon::thread_interrupt(ctx->th_id, EOK);
                 continue;
             }
 
@@ -370,14 +370,14 @@ public:
                 continue;
             }
 
-            photon::thread_interrupt(ctx->th_id, EOK);
+            photon::thread_interrupt(ctx->th_id, EOK);   // 将ctx->th_id放入standy或者runq
         }
 
         io_uring_cq_advance(m_ring, i);  // 标记消费完成
         return 0;
     }
 
-    int cancel_wait() override {
+    int cancel_wait() override {   // 跨线程唤醒
         if (eventfd_write(m_eventfd, 1) != 0) {
             LOG_ERRNO_RETURN(0, -1, "iouring: write eventfd failed");
         }
@@ -411,7 +411,7 @@ public:
 private:
     struct ioCtx {
         ioCtx(bool canceller, bool event) : is_canceller(canceller), is_event(event) {}
-        photon::thread* th_id = photon::CURRENT;
+        photon::thread* th_id = photon::CURRENT;   // 当前协程
         int32_t res = -1;
         bool is_canceller;
         bool is_event;
@@ -545,7 +545,7 @@ iouringEngine::SubmitWaitFunc iouringEngine::m_submit_wait_func = nullptr;
 
 template<typename...Ts>
 inline size_t do_async_io(Ts...xs) {
-    auto mee = (iouringEngine*) get_vcpu()->master_event_engine;
+    auto mee = (iouringEngine*) get_vcpu()->master_event_engine;   // 获取master engine
     return mee->async_io(xs...);
 }
 

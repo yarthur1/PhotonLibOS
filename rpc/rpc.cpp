@@ -78,7 +78,7 @@ namespace rpc {
             header.tag = args->tag;
 
             auto iov = args->request;
-            auto ret = iov->push_front({&header, sizeof(header)});
+            auto ret = iov->push_front({&header, sizeof(header)});   // 使用预留的空间
             if (ret != sizeof(header)) return -1;
             ret = args->RET = m_stream->writev(iov->iovec(), iov->iovcnt());
             if (ret != header.size + sizeof(header)) {
@@ -216,7 +216,7 @@ namespace rpc {
         {
             Header header;
             Function func;
-            IOVector request;
+            IOVector request;   // 每个Context对应一个新的空间
             IStream* stream;
             SkeletonImpl* sk;
             bool got_it;
@@ -266,11 +266,11 @@ namespace rpc {
                     LOG_ERROR_RETURN(ENOSYS, -1, "unable to find function service for ID ", header.function.function);
 
                 func = it->second;
-                ret = request.push_back(header.size);
+                ret = request.push_back(header.size);  // 提前分配空间
                 if (ret != header.size) {
                     LOG_ERRNO_RETURN(ENOMEM, -1, "Failed to allocate iov");
                 }
-                ret = stream->readv(request.iovec(), request.iovcnt());
+                ret = stream->readv(request.iovec(), request.iovcnt());  // 将数据读到[start,end)
                 ERRNO errbody;
                 if (ret != header.size) {
                     stream->shutdown(ShutdownHow::ReadWrite);
@@ -294,7 +294,7 @@ namespace rpc {
                 h.function = header.function;
                 h.tag = header.tag;
                 h.reserved = 0;
-                resp->push_front(&h, sizeof(h));
+                resp->push_front(&h, sizeof(h));   // 放入header
                 if (stream == nullptr)
                     LOG_ERRNO_RETURN(0, -1, "socket closed ");
                 if (w_lock) {
@@ -321,7 +321,7 @@ namespace rpc {
         bool m_concurrent;
         bool m_running = true;
         photon::ThreadPoolBase *m_thread_pool;
-        virtual int serve(IStream* stream, bool ownership) override
+        virtual int serve(IStream* stream, bool ownership) override   // IStream需要自定义实现
         {
             if (!m_running)
                 LOG_ERROR_RETURN(ENOTSUP, -1, "the skeleton has closed");
@@ -343,7 +343,7 @@ namespace rpc {
             auto w_lock = m_concurrent ? std::make_shared<photon::mutex>() : nullptr;
             while(m_running)
             {
-                Context context(this, stream);
+                Context context(this, stream);    // ***
                 context.stream_serv_count = &stream_serv_count;
                 context.stream_cv = &stream_cv;
                 context.w_lock = w_lock;

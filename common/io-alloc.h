@@ -28,7 +28,7 @@ limitations under the License.
 // Defines allocator and deallocator for I/O memory,
 // which deal with a ranged size.
 // Users are free to implement their cusomized allocators.
-struct IOAlloc
+struct IOAlloc   // 定义申请和释放内存的callback
 {
     struct RangeSize { int min, max;};  // must be non-negative
 

@@ -21,7 +21,7 @@ namespace photon {
 namespace fs
 {
     template<class IFileBase>
-    class ForwardFileBase : public IFileBase
+    class ForwardFileBase : public IFileBase   // 基类也能传递
     {
     protected:
         IFileBase* m_file;

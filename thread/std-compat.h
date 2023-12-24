@@ -85,7 +85,7 @@ public:
     explicit thread(Function&& f, Args&& ... args) {
         m_th = photon::thread_create11(::std::forward<Function>(f), ::std::forward<Args>(args)...);
         photon::thread_enable_join(m_th, true);
-        do_migrate();
+        do_migrate();  // 将th迁移到workpool
     }
 
     bool joinable() const {

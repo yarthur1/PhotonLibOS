@@ -18,18 +18,18 @@ limitations under the License.
 #include "../thread/timer.h"
 // #include "alog.h"
 
-void* IdentityPoolBase::get()
+void* IdentityPoolBase::get()  // 超出容量可以get m_size不变化
 {
     SCOPED_LOCK(m_mtx);
     void* obj = nullptr;
     assert(m_size <= m_capacity);
     if (m_size > 0) {
-        obj = m_items[--m_size];
+        obj = m_items[--m_size];   // 取最后一个元素
         if (m_size < min_size_in_interval)
             min_size_in_interval = m_size;
     } else {
         m_mtx.unlock();
-        m_ctor(&obj);
+        m_ctor(&obj);   // 先构建  operator()
         m_mtx.lock();
     }
     ++m_refcnt;
@@ -45,7 +45,7 @@ void IdentityPoolBase::put(void* obj)
             m_items[m_size++] = obj;
         } else{
             m_mtx.unlock();
-            m_dtor(obj);
+            m_dtor(obj);    // 超过容量会析构掉
             m_mtx.lock();
         }
         --m_refcnt;
@@ -54,7 +54,7 @@ void IdentityPoolBase::put(void* obj)
     assert(m_size <= m_capacity);
 }
 
-uint64_t IdentityPoolBase::do_scale()
+uint64_t IdentityPoolBase::do_scale()   // 缩容掉一半
 {
     auto des_n = (min_size_in_interval + 1) / 2;
     assert(des_n <= m_size);
@@ -62,7 +62,7 @@ uint64_t IdentityPoolBase::do_scale()
     while (m_size > 0 && des_n-- > 0) {
         auto x = --m_size;
         m_mtx.unlock();
-        m_dtor(m_items[x]);
+        m_dtor(m_items[x]);     // 析构掉
         m_mtx.lock();
     }
     min_size_in_interval = m_size;
@@ -106,7 +106,7 @@ struct ScalePoolController {
     uint64_t scan_pool_scale() {
         photon::scoped_lock lock(mutex);
         for (auto e : entries) {
-            e->do_scale();
+            e->do_scale();   // 缩容?
         }
         return 0;
     }

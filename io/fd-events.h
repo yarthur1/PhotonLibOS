@@ -44,7 +44,7 @@ public:
      * @return 0 for success, which means event arrived in time
      *         -1 for failure, could be timeout or interrupted by another thread
      */
-    virtual int wait_for_fd(int fd, uint32_t interests, uint64_t timeout) = 0;
+    virtual int wait_for_fd(int fd, uint32_t interests, uint64_t timeout) = 0;  // 重载不同的引擎  epoll uring
 
     int wait_for_fd_readable(int fd, uint64_t timeout = -1) {
         return wait_for_fd(fd, EVENT_READ, timeout);
@@ -124,7 +124,7 @@ int _fd_events_init(Ctor new_engine) {
     auto ee = new_engine();
     if (!ee)
         return -1;
-    get_vcpu()->master_event_engine = ee;
+    get_vcpu()->master_event_engine = ee;  // 设置event engine
     return 0;
 }
 

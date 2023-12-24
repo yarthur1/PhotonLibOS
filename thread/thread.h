@@ -70,19 +70,19 @@ namespace photon
     // switching to other threads (without going into sleep queue)
     void thread_yield();
 
-    // switching to a specific thread, which must be RUNNING
+    // switching to a specific thread, which must be RUNNING  ready?
     void thread_yield_to(thread* th);
 
     // suspend CURRENT thread for specified time duration, and switch
     // control to other threads, resuming possible sleepers.
     // Return 0 if timeout, return -1 if interrupted, and errno is set by the interrupt invoker.
-    int thread_usleep(uint64_t useconds);
+    int thread_usleep(uint64_t useconds);   // 当前协程sleep,切到next协程执行
 
     // thread_usleep_defer sets a callback, and will execute callback in another photon thread
     // after this photon thread fall in sleep. The defer function should NEVER fall into sleep!
     typedef void (*defer_func)(void*);
     int thread_usleep_defer(uint64_t useconds, defer_func defer, void* defer_arg=nullptr);
-    inline int thread_sleep(uint64_t seconds)
+    inline int thread_sleep(uint64_t seconds)   // ((uint64_t)-1)   -1补码表示全为1
     {
         const uint64_t max_seconds = ((uint64_t)-1) / 1000 / 1000;
         uint64_t usec = (seconds >= max_seconds ? -1 :
@@ -90,7 +90,7 @@ namespace photon
         return thread_usleep(usec);
     }
 
-    inline void thread_suspend()
+    inline void thread_suspend()   // 挂起协程
     {
         thread_usleep(-1);
     }
@@ -103,7 +103,7 @@ namespace photon
     // }
     inline void thread_resume(thread* th)
     {
-        thread_interrupt(th, 0);
+        thread_interrupt(th, 0);   // 放到standby或者runq
     }
 
     // if true, the thread `th` should cancel what is doing, and quit
@@ -159,7 +159,7 @@ namespace photon
 #ifdef __aarch64__
         asm volatile("isb" : : : "memory");
 #else
-        _mm_pause();
+        _mm_pause(); // 告诉处理器当前线程正在执行一个延迟敏感的等待循环
 #endif
     }
 
@@ -167,7 +167,7 @@ namespace photon
     public:
         int lock() {
             while (unlikely(xchg())) {
-                while (likely(load())) {
+                while (likely(load())) {   // 如果已经加锁则等
                     spin_wait();
                 }
             }
@@ -175,7 +175,7 @@ namespace photon
         }
         int try_lock() {
             return (likely(!load()) &&
-                    likely(!xchg())) ? 0 : -1;
+                    likely(!xchg())) ? 0 : -1;   // 0加锁成功
         }
         void unlock() {
             _lock.store(false, std::memory_order_release);
@@ -203,11 +203,11 @@ namespace photon
     class waitq
     {
     protected:
-        int wait(uint64_t timeout = -1);
-        int wait_defer(uint64_t timeout, void(*defer)(void*), void* arg);
+        int wait(uint64_t timeout = -1);   // 会挂起并切换协程   q->th记录了挂起的协程
+        int wait_defer(uint64_t timeout, void(*defer)(void*), void* arg);  // 切换到其他协程前执行defer
         void resume(thread* th, int error_number = ECANCELED);  // `th` must be waiting in this waitq!
         int resume_all(int error_number = ECANCELED);
-        thread* resume_one(int error_number = ECANCELED);
+        thread* resume_one(int error_number = ECANCELED);  //将waitq放入standby或者runq
         waitq() = default;
         waitq(const waitq& rhs) = delete;   // not allowed to copy construct
         waitq(waitq&& rhs) = delete;
@@ -219,8 +219,8 @@ namespace photon
         struct {
             thread* th = nullptr;           // the first thread in queue, if any
             spinlock lock;
-            operator bool () { return th; }
-        } q;
+            operator bool () { return th; }   // 根据th指针返回bool值
+        } q;    // push_back方法是哪个   q强制转换成 thread_list
     };
 
     class mutex : protected waitq
@@ -258,7 +258,7 @@ namespace photon
         explicit locker(M* mutex, uint64_t do_lock = 2) : m_mutex(mutex)
         {
             if (do_lock > 0) {
-                lock(do_lock > 1);
+                lock(do_lock > 1);   // >1 一定要锁成功
             } else {
                 m_locked = false;
             }
@@ -271,7 +271,7 @@ namespace photon
             rhs.m_locked = false;
         }
         locker(const locker& rhs) = delete;
-        int lock(bool must_lock = true)
+        int lock(bool must_lock = true)   // 返回0表示锁成功
         {
             int ret; do
             {
@@ -329,7 +329,7 @@ namespace photon
     class condition_variable : protected waitq
     {
     public:
-        int wait(mutex* m, uint64_t timeout = -1);
+        int wait(mutex* m, uint64_t timeout = -1);  // 挂起当前协程
         int wait(mutex& m, uint64_t timeout = -1)
         {
             return wait(&m, timeout);
@@ -347,7 +347,7 @@ namespace photon
         {
             return waitq::wait(timeout);
         }
-        thread* signal()     { return resume_one(); }
+        thread* signal()     { return resume_one(); }   // 唤醒头
         thread* notify_one() { return resume_one(); }
         int notify_all()     { return resume_all(); }
         int broadcast()      { return resume_all(); }

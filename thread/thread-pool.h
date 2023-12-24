@@ -46,14 +46,14 @@ namespace photon
         // returns a TPControl* that can be used for join; need not be deleted;
         TPControl* thread_create_ex(thread_entry start, void* arg, bool joinable = false);
 
-        void join(TPControl* pCtrl);
+        void join(TPControl* pCtrl);   // joinable = false  不应该主动调用
 
         static ThreadPoolBase* new_thread_pool(
             uint32_t capacity, uint64_t stack_size = DEFAULT_STACK_SIZE)
         {
-            auto p = B::new_identity_pool(capacity);
+            auto p = B::new_identity_pool(capacity);   // 设定容量
             auto pool = (ThreadPoolBase*) p;
-            pool->init(stack_size);
+            pool->init(stack_size);   // 设置构造析构函数和栈大小
             return pool;
         }
 
@@ -65,14 +65,14 @@ namespace photon
     protected:
         typedef IdentityPool0<TPControl> B;
         static void* stub(void* arg);
-        static int ctor(ThreadPoolBase*, TPControl**);
+        static int ctor(ThreadPoolBase*, TPControl**);   // static
         static int dtor(ThreadPoolBase*, TPControl*);
         static bool wait_for_work(TPControl &ctrl);
         static bool after_work_done(TPControl &ctrl);
         static bool do_thread_join(TPControl* pCtrl);
         void init(uint64_t stack_size)
         {
-            set_ctor({this, &ctor});
+            set_ctor({this, &ctor});   // 设置构造析构
             set_dtor({this, &dtor});
             m_reserved = (void*)stack_size;
         }
@@ -97,7 +97,7 @@ namespace photon
     }
 
 
-    template<uint32_t CAPACITY>
+    template<uint32_t CAPACITY>    // 非类型模板参数
     class ThreadPool : public ThreadPoolBase
     {
     public:

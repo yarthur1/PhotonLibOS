@@ -263,9 +263,9 @@ public:
     size_t sum() const
     {
         do_assert();
-        return view().sum();
+        return view().sum();  // 各个io_vec的len和
     }
-    struct iovec* iovec()
+    struct iovec* iovec()   // 返回begin开始的iovec
     {
         do_assert();
         return iovs_ptr() + iov_begin;
@@ -896,7 +896,7 @@ protected:
         }
     };
 
-    IOVAllocation_* allocator() const
+    IOVAllocation_* allocator() const   // 获取iovec对象之后的地址
     {   // this makes an assumption of the memory layout as `IOVectorEntity`
         auto addr = (char*)this + sizeof(*this) +sizeof(iovs[0]) * capacity;
         return (IOVAllocation_*)addr;

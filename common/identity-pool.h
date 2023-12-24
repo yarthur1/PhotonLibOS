@@ -25,7 +25,7 @@ limitations under the License.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
-class IdentityPoolBase: public intrusive_list_node<IdentityPoolBase> {
+class IdentityPoolBase: public intrusive_list_node<IdentityPoolBase> {   // 控制容量
 public:
     typedef Callback<void**> Constructor;
     typedef Callback<void*>  Destructor;
@@ -33,7 +33,7 @@ public:
     void put(void* obj);
 
     uint64_t do_scale();
-    int enable_autoscale();
+    int enable_autoscale();   // 自动缩容
     int disable_autoscale();
 
 protected:
@@ -43,7 +43,7 @@ protected:
     photon::condition_variable m_cvar;
     Constructor m_ctor;
     Destructor  m_dtor;
-    void* m_reserved;
+    void* m_reserved;   // stack_size
     bool autoscale = false;
 
     void* m_items[0];  // THIS MUST BE THE LAST MEMBER DATA!!!
@@ -59,7 +59,7 @@ public:
     typedef Callback<T**> Constructor;
     typedef Callback<T*>  Destructor;
     static IdentityPoolBaseT* new_identity_pool(uint32_t capacity,
-        Constructor ctor = {0, &default_constructor},
+        Constructor ctor = {0, &default_constructor},    // Delegate<int, Ts...>
         Destructor  dtor = {0, &default_destructor})
     {
         auto size = sizeof(IdentityPoolBaseT) +

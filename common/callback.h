@@ -86,7 +86,7 @@ struct Delegate : public Delegate_Base
     void bind(U* obj, UFunc<U> func)    { bind(obj, (Func&)func); }
 
     template<typename U>
-    void bind(U* obj, UMFunc<U> func)   { bind(obj, (UCMFunc<U>&)func); }
+    void bind(U* obj, UMFunc<U> func)   { bind(obj, (UCMFunc<U>&)func); }   //
 
     template<typename U>
     void bind(U* obj, UCMFunc<U> func)
@@ -114,7 +114,7 @@ struct Delegate : public Delegate_Base
 
     operator bool() const               { return _func; }
 
-    R operator()(const Ts&...args) const { return fire(args...); }
+    R operator()(const Ts&...args) const { return fire(args...); }  // 
 
     R fire(const Ts&... args) const {
         return _func ? _func(_obj, args...) : R();

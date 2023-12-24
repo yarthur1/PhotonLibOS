@@ -87,7 +87,7 @@ namespace rpc
                 // LOG_ERROR("failed to perform RPC ", ERRNO());
                 return -1;
             }
-            if (ret < expected_size) {
+            if (ret < expected_size) {   // 
                 DeserializerIOV des;
                 respmsg.iov.truncate(ret);
                 using P = typename Operation::Response;
@@ -97,7 +97,7 @@ namespace rpc
                 assert((((char*)re + sizeof(P)) <= (char*)&resp) ||
                     ((char*)re >= ((char*)&resp + sizeof(P))));
                 memcpy(&resp, re, sizeof(P));
-            } else {
+            } else {   // valid如何处理?
                 if (!resp.validate_checksum(&respmsg.iov, nullptr, 0))
                     return -1;
             }
@@ -201,18 +201,18 @@ namespace rpc
             if (!request) { errno = EINVAL; return -1; }    // failed to decode
 
             IOVector iov;
-            iov.allocator = *req->get_allocator();
+            iov.allocator = *req->get_allocator();   // 获取req对象之后的地址
             Response response;
             // some service (like preadv) may need an iovector
             // invoke actual service function in ServerClass by overloading
             auto fini = static_cast<ServerClass*>(obj) ->
-                do_rpc_service(request, &response, &iov, stream);
+                do_rpc_service(request, &response, &iov, stream);   /// 获取response
             (void)fini; // To prevent possible compiler warning about unused variable.
                         // Note that `fini` (of any type) may get destructed after sending,
                         // giving a chance for the `Operation` to do some cleaning up.
             SerializerIOV respmsg;
             respmsg.serialize(response);
-            return rs(&respmsg.iov);
+            return rs(&respmsg.iov);   // ResponseSender是一个回调
         }
     };
 

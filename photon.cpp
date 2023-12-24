@@ -43,14 +43,14 @@ static const int recommended_order[] = {INIT_EVENT_EPOLL, INIT_EVENT_IOURING, IN
 static const int recommended_order[] = {INIT_EVENT_KQUEUE, INIT_EVENT_SELECT};
 #endif
 
-int init(uint64_t event_engine, uint64_t io_engine) {
+int init(uint64_t event_engine, uint64_t io_engine) {  // io_engine代表啥
     if (vcpu_init() < 0)
         return -1;
 
     if (event_engine != INIT_EVENT_NONE) {
         bool ok = false;
         for (auto each : recommended_order) {   // 需要指定INIT_EVENT_IOURING  默认会用epoll
-            if ((each & event_engine) && fd_events_init(each) == 0) {
+            if ((each & event_engine) && fd_events_init(each) == 0) {   // 设置master_event_engine 比如iouringEngine
                 ok = true;
                 break;
             }
@@ -66,11 +66,11 @@ int init(uint64_t event_engine, uint64_t io_engine) {
 #ifdef ENABLE_FSTACK_DPDK
     INIT_IO(FSTACK_DPDK, fstack_dpdk);
 #endif
-    INIT_IO(EXPORTFS, exportfs)
-    INIT_IO(LIBCURL, libcurl)
+    INIT_IO(EXPORTFS, exportfs)    // exportfs_init 作用？
+    INIT_IO(LIBCURL, libcurl)      // libcurl_init
 #ifdef __linux__
-    INIT_IO(LIBAIO, libaio_wrapper)
-    INIT_IO(SOCKET_EDGE_TRIGGER, et_poller)
+    INIT_IO(LIBAIO, libaio_wrapper)   // libaio_wrapper_init()
+    INIT_IO(SOCKET_EDGE_TRIGGER, et_poller)   // et_poller_init()
 #endif
     g_event_engine = event_engine;
     g_io_engine = io_engine;

@@ -95,7 +95,7 @@ namespace photon {
         typename std::reference_wrapper<typename std::remove_reference<T>::type>::type>;
 
     template<typename T, typename...ARGUMENTS>
-    struct is_functor : std::conditional<
+    struct is_functor : std::conditional<   // T是一个类并且T(arg)可调用
         std::is_class<typename std::decay<T>::type>::value &&
         is_callable<T, ARGUMENTS...>::value,
             std::true_type, std::false_type>::type { };

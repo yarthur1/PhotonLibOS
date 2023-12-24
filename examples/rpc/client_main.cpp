@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
     photon::init();
     DEFER(photon::fini());
 
-    photon::sync_signal(SIGTERM, &handle_term);
+    photon::sync_signal(SIGTERM, &handle_term);   // signal
     photon::sync_signal(SIGINT, &handle_term);
 
     ExampleClient client;

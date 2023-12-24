@@ -173,7 +173,7 @@ namespace fs
         }
     };
 
-    class PsyncFileAdaptor final : public BaseFileAdaptor
+    class PsyncFileAdaptor final : public BaseFileAdaptor   // psync不依赖 event engine
     {
     public:
         using BaseFileAdaptor::BaseFileAdaptor;
@@ -184,7 +184,7 @@ namespace fs
 
         virtual int fsync() override
         {
-            thread_yield();
+            thread_yield();     // 主动挂起协程，先执行其他任务，然后执行阻塞任务
             return UISysCall(::fsync(fd));
         }
         virtual ssize_t read(void *buf, size_t count) override
@@ -251,7 +251,7 @@ namespace fs
 
 #ifdef __linux__
     template<typename AIOEngine>
-    class AioFileAdaptor final : public BaseFileAdaptor
+    class AioFileAdaptor final : public BaseFileAdaptor   // AioFileAdaptor<io_uring>  根据AIOEngine决定调用哪个方法
     {
     public:
         using BaseFileAdaptor::BaseFileAdaptor;
@@ -610,7 +610,7 @@ namespace fs
         if (!root_path || !root_path[0])
             return lfs;
 
-        auto sfs = new_subfs(lfs, root_path, true);
+        auto sfs = new_subfs(lfs, root_path, true);   // sub fs
         if (!sfs)
         {
             delete lfs;

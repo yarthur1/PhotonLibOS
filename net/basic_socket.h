@@ -90,7 +90,7 @@ int set_fd_nonblocking(int fd);
 template <typename IOCB, typename WAIT>
 __FORCE_INLINE__ int doio(IOCB iocb, WAIT waitcb) {
     while (true) {
-        ssize_t ret = iocb();
+        ssize_t ret = iocb();   // 执行具体的io操作
         if (ret < 0) {
             auto e = errno;  // errno is usually a macro that expands to a
                              // function call
@@ -99,7 +99,7 @@ __FORCE_INLINE__ int doio(IOCB iocb, WAIT waitcb) {
                 if (waitcb())  // non-zero result means timeout or
                                // interrupt, need to return
                     return ret;
-                continue;
+                continue;   // ready，执行io操作
             }
         }
         return ret;

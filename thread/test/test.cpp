@@ -1273,10 +1273,10 @@ TEST(workpool, work) {
     auto start = std::chrono::system_clock::now();
     for (int i = 0; i < 4; i++) {
         jhs.emplace_back(photon::thread_enable_join(
-            photon::thread_create11(&jobwork, pool.get(), i)));
+            photon::thread_create11(&jobwork, pool.get(), i)));   // 当前线程创建4个协程
     }
     for (auto& j : jhs) {
-        photon::thread_join(j);
+        photon::thread_join(j);   // 会触发前面创建的协程执行?
     }
     auto duration = std::chrono::system_clock::now() - start;
     EXPECT_GE(duration, std::chrono::seconds(2));

@@ -173,7 +173,7 @@ namespace photon
         }
         void push(uint64_t x)
         {
-            *--(uint64_t*&)_ptr = x;
+            *--(uint64_t*&)_ptr = x;   // ptr栈底指针 高地址
         }
         template<typename T>
         void push(const T& x)
@@ -198,7 +198,7 @@ namespace photon
 // offset 32B
         int idx = -1;                       /* index in the sleep queue array */
         int error_number = 0;
-        thread_list* waitq = nullptr;       /* the q if WAITING in a queue */
+        thread_list* waitq = nullptr;       /* the q if WAITING in a queue    **sleep runq waitq区别*/
         uint16_t state = states::READY;
         spinlock lock, _;
         int flags = 0;
@@ -268,7 +268,7 @@ namespace photon
             stackful_alloc_top = (char*)ptr;
         }
 
-        void init_main_thread_stack() {
+        void init_main_thread_stack() {   // 设置当前线程的栈底地址和大小
 #ifdef __APPLE__
             stack_size = pthread_get_stacksize_np(pthread_self());
             stackful_alloc_top = (char*) pthread_get_stackaddr_np(pthread_self());
@@ -288,7 +288,7 @@ namespace photon
 #endif
         }
 
-        void go() {
+        void go() {   // 执行具体的函数
             assert(this == CURRENT);
             auto _arg = arg;
             arg = nullptr;
@@ -300,7 +300,7 @@ namespace photon
         vcpu_t* get_vcpu() {
             return (vcpu_t*)vcpu;
         }
-        bool operator < (const thread &rhs) {
+        bool operator < (const thread &rhs) {   // 唤醒时间
             return this->ts_wakeup < rhs.ts_wakeup;
         }
         void dispose() {
@@ -324,7 +324,7 @@ namespace photon
         thread_list(thread* head) {
             this->node = head;
         }
-        thread* eject_whole_atomic() {
+        thread* eject_whole_atomic() {  // 返回列表头指针
             SCOPED_LOCK(lock);
             auto p = node;
             node = nullptr;
@@ -350,7 +350,7 @@ namespace photon
         {
             q.push_back(obj);
             obj->idx = q.size() - 1;
-            up(obj->idx);
+            up(obj->idx);  // 和前面的比较
             return 0;
         }
 
@@ -360,7 +360,7 @@ namespace photon
             q[0] = q.back();
             q[0]->idx = 0;
             q.pop_back();
-            down(0);
+            down(0);  // 和后面的比较
             ret->idx = -1;
             return ret;
         }
@@ -368,7 +368,7 @@ namespace photon
         int pop(thread *obj)
         {
             if (obj->idx == -1) return -1;
-            if ((size_t)obj->idx == q.size() - 1){
+            if ((size_t)obj->idx == q.size() - 1){  // 如果是最后一个
                 q.pop_back();
                 obj->idx = -1;
                 return 0;
@@ -377,7 +377,7 @@ namespace photon
             auto id = obj->idx;
             q[obj->idx] = q.back();
             q[id]->idx = id;
-            q.pop_back();
+            q.pop_back();  // 将最后一个移动到指定位置
             if (!up(id)) down(id);
             obj->idx = -1;
             return 0;
@@ -389,13 +389,13 @@ namespace photon
             q[idx]->idx = idx;
         }
 
-        // compare m_nodes[idx] with parent node.
+        // compare m_nodes[idx] with parent node.  和前面的比较，将大的往后移
         bool up(int idx)
         {
             auto tmp = q[idx];
             bool ret = false;
             while (idx != 0){
-                auto cmpIdx = (idx - 1) >> 1;
+                auto cmpIdx = (idx - 1) >> 1;  // n-1 /2
                 if (*tmp < *q[cmpIdx]) {
                     update_node(idx, q[cmpIdx]);
                     idx = cmpIdx;
@@ -408,11 +408,11 @@ namespace photon
             return ret;
         }
 
-        // compare m_nodes[idx] with child node.
+        // compare m_nodes[idx] with child node. 和后面的比较，将小的前移
         bool down(int idx)
         {
             auto tmp = q[idx];
-            size_t cmpIdx = (idx << 1) + 1;
+            size_t cmpIdx = (idx << 1) + 1;  // 2n+1
             bool ret = false;
             while (cmpIdx < q.size()) {
                 if (cmpIdx + 1 < q.size() && *q[cmpIdx + 1] < *q[cmpIdx]) cmpIdx++;
@@ -441,13 +441,13 @@ namespace photon
 
         void wait_while(std::atomic_bool& x) {
             while (unlikely(x.load(std::memory_order_acquire))) {
-                do { spin_wait(); }
+                do { spin_wait(); }   // 盲等优化
                 while(likely(x.load(std::memory_order_relaxed)));
             }
         }
 
     public:
-        void foreground_lock() {
+        void foreground_lock() {   // 只要后台没加锁，多个前台可以加锁
             // lock
             foreground_locked.store(true, std::memory_order_release);
 
@@ -469,7 +469,7 @@ namespace photon
 
                 // otherwise release lock, wait, and repeat again
                 background_locked.store(false, std::memory_order_release);
-                spin_wait();
+                spin_wait();  // 盲等优化
             }
             return true;
         }
@@ -491,7 +491,7 @@ namespace photon
         void move_to_standbyq_atomic(T x)
         {
             _move_to_standbyq_atomic(x);
-            master_event_engine->cancel_wait();
+            master_event_engine->cancel_wait();   // 跨线程唤醒wait_and_fire_events
         }
         void _move_to_standbyq_atomic(thread_list* lst)
         {
@@ -513,7 +513,7 @@ namespace photon
             standbyq.push_back(th);
         }
 
-        thread* idle_worker;
+        thread* idle_worker;    // 作用? 如何启动
 
         NullEventEngine _default_event_engine;
 
@@ -544,7 +544,7 @@ namespace photon
 
     class RunQ {
     public:
-        thread** pc = &CURRENT;    // CURRENT何时初始化
+        thread** pc = &CURRENT;    // CURRENT何时初始化  thread_local变量
         mutable thread* current;   // current的值等于CURRENT
         RunQ() {
             asm volatile ("" : "=r"(pc) : "0"(pc));   // 防止pc在构造函数执行过程中被编译器优化掉
@@ -554,13 +554,13 @@ namespace photon
 
     struct Switch { thread *from, *to; };
 
-    class AtomicRunQ : public RunQ {
+    class AtomicRunQ : public RunQ {   // 对应协程current 
     public:
         vcpu_t* vcpu;
         mutable asymmetric_spinLock* plock;
         AtomicRunQ(const RunQ& runq = RunQ()) : RunQ(runq) {
             vcpu = current->get_vcpu();
-            (plock = &vcpu->runq_lock) -> foreground_lock();
+            (plock = &vcpu->runq_lock) -> foreground_lock();   // 
         }
         mutable bool update_current = false;
         void set_current(thread* th) const {
@@ -577,20 +577,20 @@ namespace photon
 #ifdef CONTEXT_PREFETCHING
             const int CACHE_LINE_SIZE = 64;
             auto f = *from->stack.pointer_ref();
-            __builtin_prefetch(f, 1);
+            __builtin_prefetch(f, 1);   // 预写
             // __builtin_prefetch((char*)f + CACHE_LINE_SIZE, 1);
             auto t = *to->stack.pointer_ref();
-            __builtin_prefetch(t, 0);
+            __builtin_prefetch(t, 0);   // 预读
             // __builtin_prefetch((char*)t + CACHE_LINE_SIZE, 0);
 #endif
         }
         Switch remove_current(states new_state) const {
             assert(!current->single());
             auto from = current;
-            auto to = from->remove_from_list();
+            auto to = from->remove_from_list();  // 剔除current 返回next
             set_current(to);
             prefetch_context(from, to);
-            from->state = new_state;
+            from->state = new_state;   // 设置current的状态
             to->state = states::RUNNING;
             return {from, to};
         }
@@ -616,11 +616,11 @@ namespace photon
         bool size_1or2() const {
             return current->next() == current->prev();
         }
-        void insert_tail(thread* th) const {
+        void insert_tail(thread* th) const {   // th放到current之前，构成环
             current->insert_tail(th);
         }
         void insert_list_before(thread* th) const {
-            current->insert_list_before(th);
+            current->insert_list_before(th);   // current放到th->prev之后；th放到放到current->prev之后
         }
         void remove_from_list(thread* th) const {
             assert(th->state == states::READY);
@@ -639,8 +639,8 @@ namespace photon
                 }
 
                 // postpone idle worker
-                auto next = idle_worker->remove_from_list();
-                next->insert_after(idle_worker);
+                auto next = idle_worker->remove_from_list();  // idle_worker从环移除
+                next->insert_after(idle_worker);   // idle_worker后移，又加入环中
             }
             return false;
         }
@@ -652,13 +652,13 @@ namespace photon
     static_assert(offsetof(thread, start) == 0x48, "...");
 #pragma GCC diagnostic pop
 
-    inline void thread::dequeue_ready_atomic(states newstat)
+    inline void thread::dequeue_ready_atomic(states newstat)   // waitq置空并将当前协程从环剔除
     {
         assert("this is not in runq, and this->lock is locked");
         if (waitq) {
             assert(waitq->front());
             SCOPED_LOCK(waitq->lock);
-            waitq->erase(this);
+            waitq->erase(this);   // this协程从waitq环剔除
             waitq = nullptr;
         } else {
             assert(this->single());
@@ -707,7 +707,7 @@ DEF_ASM_FUNC(_photon_thread_stub)
 R"(
         mov     0x40(%rbp), %rdi
         movq    $0, 0x40(%rbp)
-        call    *0x48(%rbp)
+        call    *0x48(%rbp)       ;对应thread start入口函数
         mov     %rax, 0x48(%rbp)
         mov     %rbp, %rdi
         call    _photon_thread_die
@@ -889,8 +889,8 @@ R"(
     extern "C" void _photon_switch_context_defer_die(void* arg,uint64_t defer_func_addr, void** to)
         asm ("_photon_switch_context_defer_die");
 
-    inline void thread::die() {
-        deallocate_tls(&tls);
+    inline void thread::die() {  // 当前协程结束后执行next协程
+        deallocate_tls(&tls);    // 释放 thread storage
         // if CURRENT is idle stub and during vcpu_fini
         // main thread waiting for idle stub joining, now idle might be only
         // thread in run-queue. To keep going, wake up waiter before remove
@@ -899,7 +899,7 @@ R"(
         state = states::DONE;
         cond.notify_one();
         get_vcpu()->nthreads--;
-        auto sw = AtomicRunQ().remove_current(states::DONE);
+        auto sw = AtomicRunQ().remove_current(states::DONE); // 剔除current并设置状态，current设置为next
         assert(this == sw.from);
         uint64_t func;
         void* arg;
@@ -912,10 +912,10 @@ R"(
             arg = &lock;
         }
         _photon_switch_context_defer_die(
-            arg, func, sw.to->stack.pointer_ref());
+            arg, func, sw.to->stack.pointer_ref());    // 执行func后开始执行to协程
     }
     __attribute__((used)) static
-    void _photon_thread_die(thread* th) {
+    void _photon_thread_die(thread* th) {   // 协程结束后执行
         assert(th == CURRENT);
         th->die();
     }
@@ -929,21 +929,21 @@ R"(
             LOG_ERROR_RETURN(ENOSYS, nullptr, "Photon not initialized in this vCPU (OS thread)");
         size_t randomizer = (rand() % 32) * (1024 + 8);
         stack_size = align_up(randomizer + stack_size + sizeof(thread), PAGE_SIZE);
-        char* ptr = (char*)photon_thread_alloc(stack_size);
+        char* ptr = (char*)photon_thread_alloc(stack_size);   // 分配内存
         auto p = ptr + stack_size - sizeof(thread) - randomizer;
-        (uint64_t&)p &= ~63;
+        (uint64_t&)p &= ~63;   // 强制转换成uint64,低6位置零
         auto th = new (p) thread;
         th->buf = ptr;
         th->stackful_alloc_top = ptr;
-        th->start = start;
+        th->start = start;     // thread entry
         th->stack_size = stack_size;
         th->arg = arg;
-        auto sp = align_down((uint64_t)p - reserved_space, 64);
-        th->stack.init((void*)sp, &_photon_thread_stub, th);
+        auto sp = align_down((uint64_t)p - reserved_space, 64);  // 地址对齐
+        th->stack.init((void*)sp, &_photon_thread_stub, th);   // thread 栈初始化 _photon_thread_stub先执行start入口，最后_photon_thread_die
         AtomicRunQ arq(rq);
-        th->vcpu = arq.vcpu;
-        arq.vcpu->nthreads++;
-        arq.insert_tail(th);
+        th->vcpu = arq.vcpu;   // 当前线程
+        arq.vcpu->nthreads++;   // 当前线程对应的协程数
+        arq.insert_tail(th);    // 放到CURRENT前 ,形成环，也是末尾;current不变
         return th;
     }
 
@@ -1115,7 +1115,7 @@ R"(
         return -1;
     }
 
-    static int resume_threads()
+    static int resume_threads()   // 不会协程切换，将standby和sleepq放到runq
     {
         int count = 0;
         auto vcpu = CURRENT->get_vcpu();
@@ -1123,31 +1123,31 @@ R"(
         auto& sleepq = vcpu->sleepq;
         if (!standbyq.empty())
         {   // threads interrupted by other vcpus were not popped from sleepq
-            auto q = standbyq.eject_whole_atomic();
+            auto q = standbyq.eject_whole_atomic();  // head指针
             if (q) {
                 thread_list list(q);
                 for (auto th: list) {
                     assert(th->state == states::STANDBY);
                     th->state = states::READY;
-                    sleepq.pop(th);
+                    sleepq.pop(th);  // 弹出
                     ++count;
                 }
                 list.node = nullptr;
-                AtomicRunQ().insert_list_before(q);
+                AtomicRunQ().insert_list_before(q);   //  current 环插入q环 放到current tail
             }
-            return count;
+            return count;   // 优先处理standby
         }
 
         if_update_now();
         while(!sleepq.empty())
         {
             auto th = sleepq.front();
-            if (th->ts_wakeup > now) break;
+            if (th->ts_wakeup > now) break;  // 还不到唤醒的时候
             SCOPED_LOCK(th->lock);
             sleepq.pop_front();
             if (th->state == states::SLEEPING) {
-                th->dequeue_ready_atomic();
-                AtomicRunQ().insert_tail(th);
+                th->dequeue_ready_atomic();   // th waitq置空，从之前waitq环剔除，设置readey状态
+                AtomicRunQ().insert_tail(th);   // 放到runq环中 tail
                 count++;
             }
         }
@@ -1159,12 +1159,12 @@ R"(
         return (states) th->state;
     }
 
-    void thread_yield()
+    void thread_yield()  // 只是切换到下一个协程执行
     {
         assert(!AtomicRunQ().single());
-        auto sw = AtomicRunQ().goto_next();
+        auto sw = AtomicRunQ().goto_next();  // 将old current变为ready并修改current,没有从环中剔除
         if_update_now();
-        switch_context(sw.from, sw.to);   // 切换到其他协程执行
+        switch_context(sw.from, sw.to);   // 切换到next协程执行
     }
 
     void thread_yield_fast() {
@@ -1197,19 +1197,19 @@ R"(
     }
 
     __attribute__((always_inline)) inline
-    Switch prepare_usleep(uint64_t useconds, thread_list* waitq, RunQ rq = {})
+    Switch prepare_usleep(uint64_t useconds, thread_list* waitq, RunQ rq = {})   // 将next设置为current，将老的current移到sleepq并设置唤醒时间
     {
         SCOPED_MEMBER_LOCK(waitq);
-        SCOPED_LOCK(rq.current->lock);
+        SCOPED_LOCK(rq.current->lock);   // 加锁?
         assert(!AtomicRunQ(rq).single());
-        auto sw = AtomicRunQ(rq).remove_current(states::SLEEPING);
+        auto sw = AtomicRunQ(rq).remove_current(states::SLEEPING);   // 设置current sleep并从AtomicRunQ剔除,设置新的current
         if (waitq) {
             waitq->push_back(sw.from);
             sw.from->waitq = waitq;
         }
         if_update_now(true);
-        sw.from->ts_wakeup = sat_add(now, useconds);
-        sw.from->get_vcpu()->sleepq.push(sw.from);
+        sw.from->ts_wakeup = sat_add(now, useconds);  // 设置唤醒时间
+        sw.from->get_vcpu()->sleepq.push(sw.from);    // 放到sleepq
         return sw;
     }
 
@@ -1222,9 +1222,9 @@ R"(
         }
 
         auto r = prepare_usleep(useconds, waitq);
-        switch_context(r.from, r.to);
+        switch_context(r.from, r.to);   // 恢复执行时一定是时间过期了
         assert(r.from->waitq == nullptr);
-        return r.from->set_error_number();
+        return r.from->set_error_number();   // 被唤醒后设置error_number
     }
 
     typedef void (*defer_func)(void*);
@@ -1232,7 +1232,7 @@ R"(
         thread_list* waitq, defer_func defer, void* defer_arg)
     {
         auto r = prepare_usleep(useconds, waitq);
-        switch_context_defer(r.from, r.to, defer, defer_arg);
+        switch_context_defer(r.from, r.to, defer, defer_arg); //切换到to之前先执行defer函数
         assert(r.from->waitq == nullptr);
         return r.from->set_error_number();
     }
@@ -1272,8 +1272,8 @@ R"(
 
     __attribute__((noinline))
     static int do_thread_usleep(uint64_t useconds, RunQ rq) {
-        auto r = prepare_usleep(useconds, nullptr, rq);
-        switch_context(r.from, r.to);
+        auto r = prepare_usleep(useconds, nullptr, rq);   // current从runq剔除，放到sleepq
+        switch_context(r.from, r.to);  // 切换到next执行， 如何切回来;执行完后调用die
         assert(r.from->waitq == nullptr);
         return r.from->set_error_number();
     }
@@ -1285,32 +1285,32 @@ R"(
             errno = EPERM;
         return -1;
     }
-    int thread_usleep(uint64_t useconds) {
+    int thread_usleep(uint64_t useconds) {   // (uint64_t -1)= 2^64-1  // 当前协程sleep,切到next协程执行，一定会在指定的时间唤醒吗?
         RunQ rq;
         if (unlikely(!rq.current))
             LOG_ERROR_RETURN(ENOSYS, -1, "Photon not initialized in this thread");
-        if (unlikely(!useconds))
-            return thread_yield(), 0;
+        if (unlikely(!useconds))     // useconds=0的情况
+            return thread_yield(), 0;   // 没有从runq剔除
         if (unlikely(rq.current->is_shutting_down()))
             return do_shutdown_usleep(useconds, rq);
-        return do_thread_usleep(useconds, rq);
+        return do_thread_usleep(useconds, rq);   // 从runq剔除
     }
 
-    static void prelocked_thread_interrupt(thread* th, int error_number)
+    static void prelocked_thread_interrupt(thread* th, int error_number)  // 放入standby或者runq
     {
         vcpu_t* vcpu = th->get_vcpu();
-        assert(th && th->state == states::SLEEPING);
+        assert(th && th->state == states::SLEEPING);  // th为sleep状态
         assert("th->lock is locked");
         assert(th != CURRENT);
-        th->error_number = error_number;
+        th->error_number = error_number;   // 设置error_number
         RunQ rq;
-        if (unlikely(!rq.current || vcpu != rq.current->get_vcpu())) {
-            th->dequeue_ready_atomic(states::STANDBY);
+        if (unlikely(!rq.current || vcpu != rq.current->get_vcpu())) {  // th不属于当前线程
+            th->dequeue_ready_atomic(states::STANDBY);   // th waitq置空,STANDBY状态
             vcpu->move_to_standbyq_atomic(th);
         } else {
             th->dequeue_ready_atomic();
             vcpu->sleepq.pop(th);
-            AtomicRunQ(rq).insert_tail(th);
+            AtomicRunQ(rq).insert_tail(th);  // 放到runq
         }
     }
     void thread_interrupt(thread* th, int error_number)
@@ -1382,7 +1382,7 @@ R"(
 
         th->lock.lock();
         while (th->state != states::DONE) {
-            th->cond.wait(th->lock);
+            th->cond.wait(th->lock);   /// 协程未执行会触发执行吗?
         }
         th->dispose();
     }
@@ -1489,7 +1489,7 @@ R"(
     int waitq::wait(uint64_t timeout)
     {
         static_assert(sizeof(q) == sizeof(thread_list), "...");
-        auto lst = (thread_list*)&q;
+        auto lst = (thread_list*)&q;    //  q强制转换成 thread_list
         int ret = thread_usleep(timeout, lst);
         return waitq_translate_errno(ret);
     }
@@ -1516,7 +1516,7 @@ R"(
         thread* _th;
         ScopedLockHead(waitq* waitq) :
             _th(indirect_lock(&waitq->q.th)) { }
-        operator thread*()   { return _th; }
+        operator thread*()   { return _th; }   // 类型转换运算  operator type()
         thread* operator->() { return _th; }
         ~ScopedLockHead()    { if (_th) _th->lock.unlock(); }
     };
@@ -1526,7 +1526,7 @@ R"(
         if (h)
         {
             assert(h->waitq == (thread_list*)this);
-            prelocked_thread_interrupt(h, error_number);
+            prelocked_thread_interrupt(h, error_number);  // h从waitq剔除；h放到standby或者runq
             assert(h->waitq == nullptr);
             assert(this->q.th != h);
         }
@@ -1642,10 +1642,10 @@ R"(
         assert(m);
         if (!m)
             LOG_ERROR_RETURN(EINVAL, -1, "there must be a lock");
-        int ret = thread_usleep_defer(timeout, q, unlock, m);
+        int ret = thread_usleep_defer(timeout, q, unlock, m);  // waitq push_back 当前协程；切换到下一个协程前先解锁
         auto en = ret < 0 ? errno : 0;
         while (true) {
-            int ret = lock(m);
+            int ret = lock(m);   // 切换回来后需要加锁
             if (ret == 0) break;
             LOG_ERROR("failed to get mutex lock, ` `, try again", VALUE(ret), ERRNO());
             thread_usleep(1000, nullptr);
@@ -1763,18 +1763,18 @@ R"(
     void reset_master_event_engine_default() {
         CURRENT->get_vcpu()->reset_master_event_engine_default();
     }
-    static void* idle_stub(void*)
+    static void* idle_stub(void*)  // vcpu_init
     {
         RunQ rq;
         auto last_idle = now;
         auto vcpu = rq.current->get_vcpu();
         while (vcpu->state != states::DONE) {
-            while (!AtomicRunQ(rq).single()) {
-                thread_yield();
+            while (!AtomicRunQ(rq).single()) {   // 当前线程runq还有其他协程
+                thread_yield();   // 切换到下一个协程执行,当前idle_stub 协程没有被剔除
                 if (unlikely(sat_sub(now, last_idle) >= 1000UL)) {
                     last_idle = now;
-                    vcpu->master_event_engine->wait_and_fire_events(0);
-                    resume_threads();
+                    vcpu->master_event_engine->wait_and_fire_events(0);  // 提交和获取其他就绪事件
+                    resume_threads();   // 不会切到其他协程，将standby和sleepq放到runq
                 }
             }
             if (vcpu->state == states::DONE)
@@ -1788,7 +1788,7 @@ R"(
                 usec = min(usec,
                     sat_sub(sleepq.front()->ts_wakeup, now));
             last_idle = now;
-            vcpu->master_event_engine->wait_and_fire_events(usec);
+            vcpu->master_event_engine->wait_and_fire_events(usec);  // 最多休眠到第一个sleepq可以唤醒
             resume_threads();
         }
         return nullptr;
@@ -1833,17 +1833,17 @@ R"(
         if (!th || !v) {
             LOG_ERROR_RETURN(EINVAL, -1, "target thread / vcpu must be specified")
         }
-        if (v == CURRENT->vcpu) {
+        if (v == CURRENT->vcpu) {  // 目标是当前线程，直接成功；th属于当前线程
             return 0;
         }
         if (th == CURRENT) {
-            return defer_migrate_current(v);
+            return defer_migrate_current(v);   // 将current移动到其他线程 cpu执行下一个协程
         }
         if (th->vcpu != CURRENT->vcpu) {
             LOG_ERROR_RETURN(EINVAL, -1,
                 "Try to migrate thread `, which is not on current vcpu.", th)
         }
-        if (th->state != READY) {
+        if (th->state != READY) {   // 只能迁移ready状态
             LOG_ERROR_RETURN(EINVAL, -1,
                 "Try to migrate thread `, which is not ready.", th)
         }
@@ -1851,7 +1851,7 @@ R"(
     }
     static int do_thread_migrate(thread* th, vcpu_base* vb) {
         assert(vb != th->vcpu);
-        AtomicRunQ().remove_from_list(th);
+        AtomicRunQ().remove_from_list(th);   // 从runq移除
         th->get_vcpu()->nthreads--;
         th->state = STANDBY;
         auto vcpu = (vcpu_t*)vb;
@@ -1877,9 +1877,9 @@ R"(
         auto th = *rq.pc = new thread;   // CURRENT指向new协程
         th->vcpu = (vcpu_t*)ptr;
         th->state = states::RUNNING;
-        th->init_main_thread_stack();
-        auto vcpu = new (ptr) vcpu_t;
-        vcpu->idle_worker = thread_create(&idle_stub, nullptr);
+        th->init_main_thread_stack();    // 将当前初始化线程的堆栈作为new协程的堆栈
+        auto vcpu = new (ptr) vcpu_t;     // 初始化vcpu
+        vcpu->idle_worker = thread_create(&idle_stub, nullptr);  // 创建idle_stub协程并将insert_tail到CURRENT协程形成环，协程还没执行？
         thread_enable_join(vcpu->idle_worker);
         if_update_now(true);
         return ++_n_vcpu;
