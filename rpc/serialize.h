@@ -297,7 +297,7 @@ namespace rpc
 
         // process built-in types
         template<typename T>
-        typename std::enable_if<!std::is_base_of<Message, T>::value>::type process_field(T& x)
+        typename std::enable_if<!std::is_base_of<Message, T>::value>::type process_field(T& x)  // int等内建类型,不为message子类这个函数才定义
         {
         }
 
@@ -353,7 +353,7 @@ namespace rpc
     struct _FilterAlignedFields
     {
         T* _obj;
-        bool _flag;
+        bool _flag;   // 非对齐，不做处理
         void process_field(aligned_buffer& x)
         {
             if (_flag)
@@ -373,7 +373,7 @@ namespace rpc
     };
 
     template<typename T>
-    _FilterAlignedFields<T> FilterAlignedFields(T* obj, bool flag)
+    _FilterAlignedFields<T> FilterAlignedFields(T* obj, bool flag)   // T = SerializerIOV
     {
         return _FilterAlignedFields<T>{obj, flag};
     }
@@ -416,7 +416,7 @@ namespace rpc
 
             // serialize aligned fields, non-aligned fields, and the main body
             auto aligned = FilterAlignedFields(this, true);
-            x.process_fields(aligned);   // __example__operation1__ reduce(ar,..xs) xs有哪些字段由T类型定义process_fields指定
+            x.process_fields(aligned);   // __example__operation1__ reduce(ar,..xs) xs有哪些字段由T类型定义process_fields指定, ar.process_field(x);
             auto non_aligned = FilterAlignedFields(this, false);
             x.process_fields(non_aligned);
             buffer msg(&x, sizeof(x));

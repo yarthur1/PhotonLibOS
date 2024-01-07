@@ -143,7 +143,7 @@ namespace photon
         return 1;
     }
 
-    static int fire_signal(void*, EventLoop*)
+    static int fire_signal(void*, EventLoop*)   // 信号处理，需要注册handler; photon::sync_signal(SIGINT, &handle_term);
     {
 #ifdef __APPLE__
         int ret = kevent(sgfd, nullptr, 0, _events, LEN(_events), &tm);

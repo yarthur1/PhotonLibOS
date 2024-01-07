@@ -79,15 +79,15 @@ namespace rpc
                 return -1;
             }
 
-            ssize_t expected_size = respmsg.iov.sum();
+            ssize_t expected_size = respmsg.iov.sum();  // resp返回的最大的长度 iov有容量限制
             FunctionID fid(Operation::IID, Operation::FID);
-            int ret = do_call(fid, &reqmsg.iov, &respmsg.iov, timeout);
+            int ret = do_call(fid, &reqmsg.iov, &respmsg.iov, timeout);   // 传string过去
             if (ret < 0) {
                 // thread_usleep(10 * 1000); // should be put into do_call(), if necessary
                 // LOG_ERROR("failed to perform RPC ", ERRNO());
                 return -1;
             }
-            if (ret < expected_size) {   // 
+            if (ret < expected_size) {   // expected_size ???
                 DeserializerIOV des;
                 respmsg.iov.truncate(ret);
                 using P = typename Operation::Response;

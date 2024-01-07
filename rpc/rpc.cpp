@@ -159,7 +159,7 @@ namespace rpc {
             }
             int ret = 0;
             OooArgs args(this, function, request, response, tmo.timeout());
-            ret = ooo_issue_operation(args);
+            ret = ooo_issue_operation(args);   // 发送rpc?
             if (ret < 0) {
                 if (errno != ECONNRESET)
                     errno = EFAULT;

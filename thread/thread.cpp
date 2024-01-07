@@ -501,7 +501,7 @@ namespace photon
             standbyq.push_back(std::move(*lst));
             for (auto th = head; th != tail; th = th->next()) {
                 assert(this == th->vcpu);
-                th->lock.unlock();
+                th->lock.unlock();     // ?????
             }
             assert(this == tail->vcpu);
             tail->lock.unlock();
@@ -1788,7 +1788,7 @@ R"(
                 usec = min(usec,
                     sat_sub(sleepq.front()->ts_wakeup, now));
             last_idle = now;
-            vcpu->master_event_engine->wait_and_fire_events(usec);  // 最多休眠到第一个sleepq可以唤醒
+            vcpu->master_event_engine->wait_and_fire_events(usec);  // 最多休眠到第一个sleepq可以唤醒,有可能立马返回
             resume_threads();
         }
         return nullptr;
