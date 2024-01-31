@@ -62,7 +62,7 @@ namespace rpc {
         int get_queue_count() override {
             return ooo_get_queue_count(m_engine);
         }
-        int do_send(OutOfOrderContext* args_)
+        int do_send(OutOfOrderContext* args_)   // head+request
         {
             auto args = (OooArgs*)args_;
             if (args->timeout.expire() < photon::now) {
@@ -151,7 +151,7 @@ namespace rpc {
             }
         };
 
-        int do_call(FunctionID function, iovector* request, iovector* response, uint64_t timeout) override {
+        int do_call(FunctionID function, iovector* request, iovector* response, uint64_t timeout) override {  // client实际的发送和接收逻辑
             scoped_rwlock rl(m_rwlock, photon::RLOCK);
             Timeout tmo(timeout);
             if (tmo.expire() < photon::now) {
@@ -187,7 +187,7 @@ namespace rpc {
     class SkeletonImpl final: public Skeleton
     {
     public:
-        unordered_map<uint64_t, Function> m_map;
+        unordered_map<uint64_t, Function> m_map;   // Function包含Operation, ServerClass信息
         virtual int add_function(FunctionID func_id, Function func) override
         {
             auto ret = m_map.insert({func_id, func});
@@ -214,7 +214,7 @@ namespace rpc {
         }
         struct Context
         {
-            Header header;
+            Header header;  // head代表啥?
             Function func;
             IOVector request;   // 每个Context对应一个新的空间
             IStream* stream;
@@ -242,7 +242,7 @@ namespace rpc {
 
             int read_request()
             {
-                ssize_t ret = stream->read(&header, sizeof(header));
+                ssize_t ret = stream->read(&header, sizeof(header));  // 数据不全如何处理? KernelSocketStream:: read
                 ERRNO err;
                 if (ret == 0) {
                     // means socket already shutted or disconnected
@@ -282,7 +282,7 @@ namespace rpc {
             {
                 sk->m_serving_count++;
                 ResponseSender sender(this, &Context::response_sender);
-                int ret = func(&request, sender, stream);
+                int ret = func(&request, sender, stream);   // 调用 rpc_service
                 sk->m_serving_count--;
                 sk->m_cond_served.notify_all();
                 return ret;
@@ -292,7 +292,7 @@ namespace rpc {
                 Header h;
                 h.size = (uint32_t)resp->sum();
                 h.function = header.function;
-                h.tag = header.tag;
+                h.tag = header.tag;   // tag的作用,保序?
                 h.reserved = 0;
                 resp->push_front(&h, sizeof(h));   // 放入header
                 if (stream == nullptr)
@@ -321,7 +321,7 @@ namespace rpc {
         bool m_concurrent;
         bool m_running = true;
         photon::ThreadPoolBase *m_thread_pool;
-        virtual int serve(IStream* stream, bool ownership) override   // IStream需要自定义实现
+        virtual int serve(IStream* stream, bool ownership) override   // IStream需要自定义实现, 处理stream中的请求
         {
             if (!m_running)
                 LOG_ERROR_RETURN(ENOTSUP, -1, "the skeleton has closed");
@@ -340,7 +340,7 @@ namespace rpc {
             });
             if (stream_accept_notify) stream_accept_notify(stream);
             DEFER(if (stream_close_notify) stream_close_notify(stream));
-            auto w_lock = m_concurrent ? std::make_shared<photon::mutex>() : nullptr;
+            auto w_lock = m_concurrent ? std::make_shared<photon::mutex>() : nullptr;  // 并发需要锁
             while(m_running)
             {
                 Context context(this, stream);    // ***
@@ -348,7 +348,7 @@ namespace rpc {
                 context.stream_cv = &stream_cv;
                 context.w_lock = w_lock;
                 node.thread = CURRENT;
-                int ret = context.read_request();
+                int ret = context.read_request();   // 获取请求？
                 ERRNO err;
                 node.thread = nullptr;
                 if (ret < 0) {
@@ -381,7 +381,7 @@ namespace rpc {
             auto ctx = (Context*)args_;
             Context context(std::move(*ctx));
             ctx->got_it = true;
-            thread_yield_to(nullptr);
+            thread_yield_to(nullptr);  // 切换到其他协程，便于上面的server loop继续执行
             context.serve_request();
             // serve done, here reduce refcount
             (*ctx->stream_serv_count) --;
@@ -429,7 +429,7 @@ namespace rpc {
     public:
         explicit StubPoolImpl(uint64_t expiration, uint64_t connect_timeout, uint64_t rpc_timeout) {
             tls_ctx = net::new_tls_context(nullptr, nullptr, nullptr);
-            tcpclient = net::new_tcp_socket_client();
+            tcpclient = net::new_tcp_socket_client();   // KernelSocketClient
             tcpclientv6 = net::new_tcp_socket_client_ipv6();
             tcpclient->timeout(connect_timeout);
             m_pool = new ObjectCache<net::EndPoint, rpc::Stub*>(expiration);
@@ -449,9 +449,9 @@ namespace rpc {
                 if (socket == nullptr) {
                     return nullptr;
                 }
-                return rpc::new_rpc_stub(socket, true);
+                return rpc::new_rpc_stub(socket, true);  // StubImpl
             };
-            return m_pool->acquire(endpoint, stub_ctor);
+            return m_pool->acquire(endpoint, stub_ctor);  // 返回 new_rpc_stub生成对象的指针
         }
 
         int put_stub(const net::EndPoint& endpoint, bool immediately) override {

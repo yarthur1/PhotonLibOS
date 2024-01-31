@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
     ep = photon::net::EndPoint(photon::net::IPAddr(FLAGS_host.c_str()),
                                FLAGS_port);
     heartbeat = photon::thread_enable_join(
-        photon::thread_create(heartbeat_thread, &client));
+        photon::thread_create(heartbeat_thread, &client));   // 创建协程
     run_some_task(&client);
     photon::thread_join(heartbeat);
 

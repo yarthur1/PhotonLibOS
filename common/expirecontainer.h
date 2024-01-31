@@ -246,7 +246,7 @@ protected:
     void* acquire(const Item& key_item, Delegate<void*> ctor,
                   uint64_t failure_cooldown = 0) {
         auto ret = ref_acquire(key_item, ctor, failure_cooldown);
-        return ret ? ret->_obj : nullptr;
+        return ret ? ret->_obj : nullptr;   // 返回 ctor()返回的指针对象
     }
 
     // the argument `key` plays the roles of (type-erased) key
@@ -308,7 +308,7 @@ public:
     ValPtr acquire(const InterfaceKey& key, const Constructor& ctor,
                    uint64_t failure_cooldown = 0) {
         auto item = ref_acquire(key, ctor, failure_cooldown);
-        return (ValPtr)(item ? item->_obj : nullptr);
+        return (ValPtr)(item ? item->_obj : nullptr);   // 返回ctor()的结果
     }
 
     int release(const InterfaceKey& key, bool recycle = false) {

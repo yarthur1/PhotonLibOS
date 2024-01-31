@@ -256,7 +256,7 @@ public:
     using ISocketServer::setsockopt;
     using ISocketServer::getsockopt;
 
-    KernelSocketServer(int socket_family, bool autoremove, bool nonblocking) :
+    KernelSocketServer(int socket_family, bool autoremove, bool nonblocking) :   // ExampleServer autoremove=false nonblocking=ture
             m_socket_family(socket_family),
             m_autoremove(autoremove),
             m_nonblocking(nonblocking) {
@@ -296,7 +296,7 @@ public:
         return 0;
     }
 
-    int start_loop(bool block) override {
+    int start_loop(bool block) override {  // ExampleServer::run
         if (workth) LOG_ERROR_RETURN(EALREADY, -1, "Already listening");
         m_block = block;
         if (block) return accept_loop();
@@ -350,10 +350,10 @@ public:
         if (cfd < 0) {
             return nullptr;
         }
-        if (m_opts.setsockopt(cfd) != 0) {
+        if (m_opts.setsockopt(cfd) != 0) {  // 设置opt
             return nullptr;
         }
-        return create_stream(cfd);
+        return create_stream(cfd);   // 根据accept fd 创建流
     }
 
     Object* get_underlay_object(uint64_t recursion = 0) override {
@@ -430,7 +430,7 @@ protected:
         DEFER(workth = nullptr);
         while (workth) {
             waiting = true;
-            auto sess = accept();
+            auto sess = accept();   // 返回 accept fd创建的KernelSocketStream 
             waiting = false;
             if (!workth) return 0;
             if (sess) {

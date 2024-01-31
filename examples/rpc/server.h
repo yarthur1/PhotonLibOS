@@ -25,14 +25,14 @@ limitations under the License.
 // data stream to deleiver RPC data;
 // and a RPC skeleton, deal with RPC package and call registered handlers
 struct ExampleServer {
-    std::unique_ptr<photon::rpc::Skeleton> skeleton;
-    std::unique_ptr<photon::net::ISocketServer> server;
+    std::unique_ptr<photon::rpc::Skeleton> skeleton;   // SkeletonImpl 负责rpc请求处理
+    std::unique_ptr<photon::net::ISocketServer> server;  // 负责连接建立
 
     ExampleServer()
-        : skeleton(photon::rpc::new_skeleton()),
-          server(photon::net::new_tcp_socket_server()) {
+        : skeleton(photon::rpc::new_skeleton()),  // 创建协程池
+          server(photon::net::new_tcp_socket_server()) {   // KernelSocketServer
         skeleton->register_service<Testrun, Heartbeat, Echo, ReadBuffer,
-                                   WriteBuffer>(this);
+                                   WriteBuffer>(this);  // 注册操作
     }
 
     // public methods named `do_rpc_service` takes rpc requests
@@ -42,7 +42,7 @@ struct ExampleServer {
     // able to use as temporary buffer
     // return value will be droped
 
-    int do_rpc_service(Testrun::Request* req, Testrun::Response* resp,
+    int do_rpc_service(Testrun::Request* req, Testrun::Response* resp,  // 定义操作如何处理 Skeleton::rpc_service会调用
                        IOVector* iov, IStream* conn);
 
     int do_rpc_service(Echo::Request* req, Echo::Response* resp, IOVector*,
@@ -58,8 +58,8 @@ struct ExampleServer {
                        IOVector* iov, IStream*);
 
     // Serve provides handler for socket server
-    int serve(photon::net::ISocketStream* stream) {
-        return skeleton->serve(stream, false);
+    int serve(photon::net::ISocketStream* stream) {  // stream代表accept 返回的连接，后续请求处理由本函数决定
+        return skeleton->serve(stream, false);  // 每个连接都会调用serve
     }
 
     void term() {

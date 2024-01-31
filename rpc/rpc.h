@@ -179,13 +179,13 @@ namespace rpc
         }
 
         template <typename Operation, typename... Operations, class ServerClass>
-        int register_service(ServerClass* obj)
+        int register_service(ServerClass* obj)  // 注册多个操作 
         {
-            int ret = register_service<Operations...>(obj);
+            int ret = register_service<Operations...>(obj);  // 递归
             if (ret < 0)
                 return ret;
             FunctionID fid(Operation::IID, Operation::FID);
-            Function func((void*)obj, &rpc_service<Operation, ServerClass>);
+            Function func((void*)obj, &rpc_service<Operation, ServerClass>);  // func包含obj指针，Operation, ServerClass
             return add_function(fid, func);
         }
 
@@ -197,7 +197,7 @@ namespace rpc
             using Response = typename Operation::Response;
 
             DeserializerIOV reqmsg;
-            auto request = reqmsg.deserialize<Request>(req);
+            auto request = reqmsg.deserialize<Request>(req);  // 反序列化
             if (!request) { errno = EINVAL; return -1; }    // failed to decode
 
             IOVector iov;
@@ -206,13 +206,13 @@ namespace rpc
             // some service (like preadv) may need an iovector
             // invoke actual service function in ServerClass by overloading
             auto fini = static_cast<ServerClass*>(obj) ->
-                do_rpc_service(request, &response, &iov, stream);   /// 获取response
+                do_rpc_service(request, &response, &iov, stream);   /// 调用用户定义的do_rpc_service，获取response
             (void)fini; // To prevent possible compiler warning about unused variable.
                         // Note that `fini` (of any type) may get destructed after sending,
                         // giving a chance for the `Operation` to do some cleaning up.
             SerializerIOV respmsg;
             respmsg.serialize(response);
-            return rs(&respmsg.iov);   // ResponseSender是一个回调
+            return rs(&respmsg.iov);   // ResponseSender是一个回调，Context::serve_request中设置
         }
     };
 

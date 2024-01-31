@@ -94,10 +94,10 @@ int ExampleServer::do_rpc_service(WriteBuffer::Request* req,
 }
 
 int ExampleServer::run(int port) {
-    if (server->bind(port) < 0)
+    if (server->bind(port) < 0)  // new_tcp_socket_server -> KernelSocketServer
         LOG_ERRNO_RETURN(0, -1, "Failed to bind port `", port)
     if (server->listen() < 0) LOG_ERRNO_RETURN(0, -1, "Failed to listen");
-    server->set_handler({this, &ExampleServer::serve});
+    server->set_handler({this, &ExampleServer::serve});  // 设置 handler
     LOG_INFO("Started rpc server at `", server->getsockname());
-    return server->start_loop(true);
+    return server->start_loop(true);  // 循环accept，有请求起协程执行m_handler(sess);  sess=KernelSocketStream(fd)
 }

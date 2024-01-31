@@ -31,7 +31,7 @@ namespace rpc {
         condition_variable m_cond_collected;
         mutex m_mutex_w, m_mutex_r;
         uint64_t m_issuing = 0;
-        uint64_t m_tag = 0;
+        uint64_t m_tag = 0;   // 请求唯一id
         bool m_running = true;
 
         ~OooEngine() {
@@ -78,7 +78,7 @@ namespace rpc {
                 goto again;
             }
 
-            int ret2 = args.do_issue(&args);
+            int ret2 = args.do_issue(&args);   // 发送rpc请求
             if (ret2 < 0) {
                 m_map.erase(args.tag);
                 LOG_ERROR_RETURN(0, -1, "failed to do_issue()");

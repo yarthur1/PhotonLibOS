@@ -29,7 +29,7 @@ int64_t ExampleClient::RPCHeartbeat(photon::net::EndPoint ep) {
     Heartbeat::Response resp;
     int ret = 0;
 
-    auto stub = pool->get_stub(ep, false);
+    auto stub = pool->get_stub(ep, false);  // StubPoolImpl返回的StubImpl
     if (!stub) return -1;
     DEFER(pool->put_stub(ep, ret < 0));
 
