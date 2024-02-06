@@ -58,8 +58,8 @@ struct ExampleServer {
                        IOVector* iov, IStream*);
 
     // Serve provides handler for socket server
-    int serve(photon::net::ISocketStream* stream) {  // stream代表accept 返回的连接，后续请求处理由本函数决定
-        return skeleton->serve(stream, false);  // 每个连接都会调用serve
+    int serve(photon::net::ISocketStream* stream) {   // stream代表accept 返回的连接，后续请求处理由本函数决定
+        return skeleton->serve(stream);   // 每个连接都会调用serve
     }
 
     void term() {

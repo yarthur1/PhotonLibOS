@@ -74,12 +74,15 @@ ptr_array_t<T> ptr_array(T* pbegin, size_t n)
     return {pbegin, pbegin + n};
 }
 
+#define __INLINE__ __attribute__((always_inline))
+#define __FORCE_INLINE__ __INLINE__ inline
+
 template<typename T>
 class Defer
 {
 public:
-    Defer(T fn) : m_func(fn) {}
-    ~Defer() { m_func(); }
+    Defer(T fn) __INLINE__ : m_func(fn) {}
+    ~Defer() __INLINE__ { m_func(); }
     void operator=(const Defer<T>&) = delete;
     operator bool () { return true; }   // if (DEFER(...)) { ... }
 
@@ -87,11 +90,8 @@ private:
     T m_func;
 };
 
-template<typename T>
+template<typename T> __FORCE_INLINE__
 Defer<T> make_defer(T func) { return Defer<T>(func); }
-
-#define __INLINE__ __attribute__((always_inline))
-#define __FORCE_INLINE__ __INLINE__ inline
 
 #define _CONCAT_(a, b) a##b
 #define _CONCAT(a, b) _CONCAT_(a, b)
@@ -289,4 +289,24 @@ constexpr bool unlikely(bool expr) { return __builtin_expect(expr, false); }
 int version_compare(std::string_view a, std::string_view b, int& result);
 int kernel_version_compare(std::string_view dst, int& result);
 void print_stacktrace();
+
+namespace photon {
+
+// Saturating addition, no upward overflow
+__attribute__((always_inline)) inline
+uint64_t sat_add(uint64_t x, uint64_t y) {
+	uint64_t z, c = __builtin_uaddl_overflow(x, y, (unsigned long*)&z);
+	return -c | z;
+}
+
+// Saturating subtract, no downward overflow
+__attribute__((always_inline)) inline
+uint64_t sat_sub(uint64_t x, uint64_t y) {
+    uint64_t z, c = __builtin_usubl_overflow(x, y, (unsigned long*)&z);
+    return c ? 0 : z;
+}
+
+}
+
+
 

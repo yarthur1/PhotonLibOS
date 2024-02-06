@@ -32,6 +32,8 @@ namespace photon {
 class WorkPool::impl {
 public:
     static constexpr uint32_t RING_SIZE = 256;
+    static constexpr uint64_t QUEUE_YIELD_COUNT = 256;
+    static constexpr uint64_t QUEUE_YIELD_US = 1024;
 
     photon::mutex worker_mtx;
     std::vector<std::thread> owned_std_threads;
@@ -102,33 +104,46 @@ public:
         exit_cv.notify_all();
     }
 
+    struct TaskLB {
+        Delegate<void> task;
+        std::atomic<uint64_t> *count;
+    };
+
     void main_loop() {
         add_vcpu();
         DEFER(remove_vcpu());
+        std::atomic<uint64_t> running_tasks{0};
         photon::ThreadPoolBase *pool = nullptr;
         if (mode > 0) pool = photon::new_thread_pool(mode);   // 协程池 保留一定数量的常驻协程?
         DEFER(if (pool) delete_thread_pool(pool));
         ready_vcpu.signal(1);
         for (;;) {
-            auto task = ring.recv();    // 当前线程正在执行其他协程(忙)，不会获取新的任务
+            auto task = ring.recv(running_tasks.load() ? 0 : QUEUE_YIELD_COUNT,     // 当前线程正在执行其他协程(忙)，不会获取新的任务
+                                  QUEUE_YIELD_US);
             if (!task) break;
+            running_tasks.fetch_add(std::memory_order_acq_rel);
+            TaskLB tasklb{task, &running_tasks};
             if (mode < 0) {
-                task();    // 两个协程，current和idle    do_thread_migrate可以迁移协程到当前线程?
-            } else if (mode == 0) {   // 每次重新创建协程,和current协程同级
+                delegate_helper(&tasklb);  // 两个协程，current和idle    do_thread_migrate可以迁移协程到当前线程?
+            } else if (mode == 0) {  // 每次重新创建协程,和current协程同级
                 auto th = photon::thread_create(
-                    &WorkPool::impl::delegate_helper, &task);
+                    &WorkPool::impl::delegate_helper, &tasklb);
                 photon::thread_yield_to(th);
             } else {
                 auto th = pool->thread_create(&WorkPool::impl::delegate_helper,   // 创建的协程同样和current同级
-                                              &task);
+                                              &tasklb);
                 photon::thread_yield_to(th);   // cpu执行当前th
             }
         }
+        while (running_tasks.load(std::memory_order_acquire))
+            photon::thread_yield();
     }
 
     static void *delegate_helper(void *arg) {
-        auto task = *(Delegate<void> *)arg;
-        task();
+        // must copy to keep tasklb alive
+        TaskLB tasklb = *(TaskLB*)arg;
+        tasklb.task();
+        tasklb.count->fetch_sub(std::memory_order_acq_rel);
         return nullptr;
     }
 

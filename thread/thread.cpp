@@ -72,8 +72,6 @@ inline int posix_memalign(void** memptr, size_t alignment, size_t size) {
    by target vcpu in resume_thread(), when its runq becomes empty;
 */
 
-#define SCOPED_MEMBER_LOCK(x) SCOPED_LOCK(&(x)->lock, ((bool)x) * 2)
-
 // Define assembly section header for clang and gcc
 #if defined(__APPLE__)
 #define DEF_ASM_FUNC(name) ".text\n" \
@@ -100,7 +98,7 @@ namespace photon
         std::atomic_bool notify{false};
 
         __attribute__((noinline))
-        int wait_for_fd(int fd, uint32_t interests, uint64_t timeout) override {
+        int wait_for_fd(int fd, uint32_t interests, Timeout timeout) override {
             return -1;
         }
 
@@ -115,7 +113,7 @@ namespace photon
         }
 
         __attribute__((noinline))
-        ssize_t wait_and_fire_events(uint64_t timeout = -1) override {
+        ssize_t wait_and_fire_events(uint64_t timeout) override {
             DEFER(notify.store(false, std::memory_order_release));
             if (!timeout) return 0;
             timeout = min(timeout, 1000 * 100UL);
@@ -849,6 +847,11 @@ R"(
 )"
     );
 
+#ifdef __clang__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winline-asm"
+#endif
+
     inline void switch_context(thread* from, thread* to) {
         prepare_switch(from, to);
         auto _t_ = to->stack.pointer_ref();
@@ -883,6 +886,9 @@ R"(
                        "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16",
                        "x17", "x18");
     }
+#ifdef __clang__
+#pragma GCC diagnostic pop
+#endif
 
 #endif  // x86 or arm
 
@@ -929,17 +935,17 @@ R"(
             LOG_ERROR_RETURN(ENOSYS, nullptr, "Photon not initialized in this vCPU (OS thread)");
         size_t randomizer = (rand() % 32) * (1024 + 8);
         stack_size = align_up(randomizer + stack_size + sizeof(thread), PAGE_SIZE);
-        char* ptr = (char*)photon_thread_alloc(stack_size);   // 分配内存
-        auto p = ptr + stack_size - sizeof(thread) - randomizer;
-        (uint64_t&)p &= ~63;   // 强制转换成uint64,低6位置零
-        auto th = new (p) thread;
+        char* ptr = (char*)photon_thread_alloc(stack_size); // 分配内存
+        uint64_t p = (uint64_t) ptr + stack_size - sizeof(thread) - randomizer;
+        p = align_down(p, 64);   // 强制转换成uint64,低6位置零
+        auto th = new((char*) p) thread;
         th->buf = ptr;
         th->stackful_alloc_top = ptr;
         th->start = start;     // thread entry
         th->stack_size = stack_size;
         th->arg = arg;
-        auto sp = align_down((uint64_t)p - reserved_space, 64);  // 地址对齐
-        th->stack.init((void*)sp, &_photon_thread_stub, th);   // thread 栈初始化 _photon_thread_stub先执行start入口，最后_photon_thread_die
+        auto sp = align_down(p - reserved_space, 64); // 地址对齐
+        th->stack.init((void*)sp, &_photon_thread_stub, th);  // thread 栈初始化 _photon_thread_stub先执行start入口，最后_photon_thread_die
         AtomicRunQ arq(rq);
         th->vcpu = arq.vcpu;   // 当前线程
         arq.vcpu->nthreads++;   // 当前线程对应的协程数
@@ -1197,10 +1203,11 @@ R"(
     }
 
     __attribute__((always_inline)) inline
-    Switch prepare_usleep(uint64_t useconds, thread_list* waitq, RunQ rq = {})   // 将next设置为current，将老的current移到sleepq并设置唤醒时间
+    Switch prepare_usleep(Timeout timeout, thread_list* waitq, RunQ rq = {})  // 将next设置为current，将老的current移到sleepq并设置唤醒时间
     {
-        SCOPED_MEMBER_LOCK(waitq);
-        SCOPED_LOCK(rq.current->lock);   // 加锁?
+        spinlock* waitq_lock = waitq ? &waitq->lock : nullptr;
+        SCOPED_LOCK(waitq_lock, ((bool) waitq) * 2);
+        SCOPED_LOCK(rq.current->lock);  // 加锁?
         assert(!AtomicRunQ(rq).single());
         auto sw = AtomicRunQ(rq).remove_current(states::SLEEPING);   // 设置current sleep并从AtomicRunQ剔除,设置新的current
         if (waitq) {
@@ -1208,92 +1215,90 @@ R"(
             sw.from->waitq = waitq;
         }
         if_update_now(true);
-        sw.from->ts_wakeup = sat_add(now, useconds);  // 设置唤醒时间
-        sw.from->get_vcpu()->sleepq.push(sw.from);    // 放到sleepq
+        sw.from->ts_wakeup = timeout.expiration();  // 设置唤醒时间
+        sw.from->get_vcpu()->sleepq.push(sw.from);  // 放到sleepq
         return sw;
     }
 
     // returns 0 if slept well (at lease `useconds`), -1 otherwise
-    static int thread_usleep(uint64_t useconds, thread_list* waitq)
+    static int thread_usleep(Timeout timeout, thread_list* waitq)
     {
-        if (unlikely(useconds == 0)) {
+        if (unlikely(timeout.expired())) {
             thread_yield();
             return 0;
         }
 
-        auto r = prepare_usleep(useconds, waitq);
-        switch_context(r.from, r.to);   // 恢复执行时一定是时间过期了
+        auto r = prepare_usleep(timeout, waitq);
+        switch_context(r.from, r.to);  // 恢复执行时一定是时间过期了
         assert(r.from->waitq == nullptr);
         return r.from->set_error_number();   // 被唤醒后设置error_number
     }
 
     typedef void (*defer_func)(void*);
-    static int thread_usleep_defer(uint64_t useconds,
+    static int thread_usleep_defer(Timeout timeout,
         thread_list* waitq, defer_func defer, void* defer_arg)
     {
-        auto r = prepare_usleep(useconds, waitq);
-        switch_context_defer(r.from, r.to, defer, defer_arg); //切换到to之前先执行defer函数
+        auto r = prepare_usleep(timeout, waitq);
+        switch_context_defer(r.from, r.to, defer, defer_arg);  //切换到to之前先执行defer函数
         assert(r.from->waitq == nullptr);
         return r.from->set_error_number();
     }
 
     __attribute__((noinline))
-    static int do_thread_usleep_defer(uint64_t useconds,
+    static int do_thread_usleep_defer(Timeout timeout,
             defer_func defer, void* defer_arg, RunQ rq) {
-        auto r = prepare_usleep(useconds, nullptr, rq);
+        auto r = prepare_usleep(timeout, nullptr, rq);
         switch_context_defer(r.from, r.to, defer, defer_arg);
         assert(r.from->waitq == nullptr);
         return r.from->set_error_number();
     }
-    static int do_shutdown_usleep_defer(uint64_t useconds,
+    static int do_shutdown_usleep_defer(Timeout timeout,
                 defer_func defer, void* defer_arg, RunQ rq) {
-        if (likely(useconds > 10*1000))
-            useconds = 10*1000;
-        int ret = do_thread_usleep_defer(useconds, defer, defer_arg, rq);
+        timeout.timeout_at_most(10 * 1000);
+        int ret = do_thread_usleep_defer(timeout, defer, defer_arg, rq);
         if (ret >= 0)
             errno = EPERM;
         return -1;
     }
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
-    int thread_usleep_defer(uint64_t useconds, defer_func defer, void* defer_arg) {
+    int thread_usleep_defer(Timeout timeout, defer_func defer, void* defer_arg) {
         RunQ rq;
         if (unlikely(!rq.current))
             LOG_ERROR_RETURN(ENOSYS, -1, "Photon not initialized in this thread");
         if (unlikely(AtomicRunQ(rq).defer_to_new_thread())) {
             thread_create((thread_entry&)defer, defer_arg);
-            return thread_usleep(useconds);
+            return thread_usleep(timeout);
         }
         if (unlikely(rq.current->is_shutting_down()))
-            return do_shutdown_usleep_defer(useconds, defer, defer_arg, rq);
-        return do_thread_usleep_defer(useconds, defer, defer_arg, rq);
+            return do_shutdown_usleep_defer(timeout, defer, defer_arg, rq);
+        return do_thread_usleep_defer(timeout, defer, defer_arg, rq);
     }
 #pragma GCC diagnostic pop
 
     __attribute__((noinline))
-    static int do_thread_usleep(uint64_t useconds, RunQ rq) {
-        auto r = prepare_usleep(useconds, nullptr, rq);   // current从runq剔除，放到sleepq
-        switch_context(r.from, r.to);  // 切换到next执行， 如何切回来;执行完后调用die
+    static int do_thread_usleep(Timeout timeout, RunQ rq) {
+        auto r = prepare_usleep(timeout, nullptr, rq);  // current从runq剔除，放到sleepq
+        switch_context(r.from, r.to);   // 切换到next执行， 如何切回来;执行完后调用die
         assert(r.from->waitq == nullptr);
         return r.from->set_error_number();
     }
-    static int do_shutdown_usleep(uint64_t useconds, RunQ rq) {
-        if (likely(useconds > 10*1000))
-            useconds = 10*1000;
-        int ret = do_thread_usleep(useconds, rq);
+    static int do_shutdown_usleep(Timeout timeout, RunQ rq) {
+        timeout.timeout_at_most(10 * 1000);
+        int ret = do_thread_usleep(timeout, rq);
         if (ret >= 0)
             errno = EPERM;
         return -1;
     }
-    int thread_usleep(uint64_t useconds) {   // (uint64_t -1)= 2^64-1  // 当前协程sleep,切到next协程执行，一定会在指定的时间唤醒吗?
+    int thread_usleep(Timeout timeout) {   // (uint64_t -1)= 2^64-1  // 当前协程sleep,切到next协程执行，一定会在指定的时间唤醒吗?
         RunQ rq;
         if (unlikely(!rq.current))
             LOG_ERROR_RETURN(ENOSYS, -1, "Photon not initialized in this thread");
-        if (unlikely(!useconds))     // useconds=0的情况
+        if (unlikely(timeout.expired()))  // useconds=0的情况
             return thread_yield(), 0;   // 没有从runq剔除
         if (unlikely(rq.current->is_shutting_down()))
-            return do_shutdown_usleep(useconds, rq);
-        return do_thread_usleep(useconds, rq);   // 从runq剔除
+            return do_shutdown_usleep(timeout, rq);
+        return do_thread_usleep(timeout, rq);  // 从runq剔除
     }
 
     static void prelocked_thread_interrupt(thread* th, int error_number)  // 放入standby或者runq
@@ -1486,14 +1491,14 @@ R"(
         }
         return (*perrno == ECANCELED) ? 0 : -1;
     }
-    int waitq::wait(uint64_t timeout)
+    int waitq::wait(Timeout timeout)
     {
         static_assert(sizeof(q) == sizeof(thread_list), "...");
         auto lst = (thread_list*)&q;    //  q强制转换成 thread_list
         int ret = thread_usleep(timeout, lst);
         return waitq_translate_errno(ret);
     }
-    int waitq::wait_defer(uint64_t timeout, void(*defer)(void*), void* arg) {
+    int waitq::wait_defer(Timeout timeout, void(*defer)(void*), void* arg) {
         static_assert(sizeof(q) == sizeof(thread_list), "...");
         auto lst = (thread_list*)&q;
         int ret = thread_usleep_defer(timeout, lst, defer, arg);
@@ -1545,12 +1550,12 @@ R"(
         auto splock = (spinlock*)s_;
         splock->unlock();
     }
-    int mutex::lock(uint64_t timeout)
-    {
-        for (int tries = 0; tries < MaxTries; ++tries) {
+    int mutex::lock(Timeout timeout) {
+        if (try_lock() == 0) return 0;
+        for (auto re = retries; re; --re) {
+            thread_yield();
             if (try_lock() == 0)
                 return 0;
-            thread_yield();
         }
         splock.lock();
         if (try_lock() == 0) {
@@ -1558,7 +1563,7 @@ R"(
             return 0;
         }
 
-        if (timeout == 0) {
+        if (timeout.expired()) {
             errno = ETIMEDOUT;
             splock.unlock();
             return -1;
@@ -1603,7 +1608,7 @@ R"(
         do_mutex_unlock(this);
     }
 
-    int recursive_mutex::lock(uint64_t timeout) {
+    int recursive_mutex::lock(Timeout timeout) {
         if (owner == CURRENT || mutex::lock(timeout) == 0) {
             recursive_count++;
             return 0;
@@ -1638,7 +1643,7 @@ R"(
     int spinlock_lock(void* arg) {
         return ((spinlock*)arg)->lock();
     }
-    static int cvar_do_wait(thread_list* q, void* m, uint64_t timeout, int(*lock)(void*), void(*unlock)(void*)) {
+    static int cvar_do_wait(thread_list* q, void* m, Timeout timeout, int(*lock)(void*), void(*unlock)(void*)) {
         assert(m);
         if (!m)
             LOG_ERROR_RETURN(EINVAL, -1, "there must be a lock");
@@ -1654,23 +1659,22 @@ R"(
         return waitq_translate_errno(ret);
 
     }
-    int condition_variable::wait(mutex* m, uint64_t timeout)
+    int condition_variable::wait(mutex* m, Timeout timeout)
     {
         return cvar_do_wait((thread_list*)&q, m, timeout, mutex_lock, mutex_unlock);
     }
-    int condition_variable::wait(spinlock* m, uint64_t timeout)
+    int condition_variable::wait(spinlock* m, Timeout timeout)
     {
         return cvar_do_wait((thread_list*)&q, m, timeout, spinlock_lock, spinlock_unlock);
     }
-    int semaphore::wait(uint64_t count, uint64_t timeout)
+    int semaphore::wait(uint64_t count, Timeout timeout)
     {
         if (count == 0) return 0;
         splock.lock();
         CURRENT->semaphore_count = count;
-        Timeout tmo(timeout);
         int ret = 0;
         while (!try_substract(count)) {
-            ret = waitq::wait_defer(tmo.timeout(), spinlock_unlock, &splock);
+            ret = waitq::wait_defer(timeout, spinlock_unlock, &splock);
             splock.lock();
             if (ret < 0 && errno == ETIMEDOUT) {
                 CURRENT->semaphore_count = 0;
@@ -1710,7 +1714,7 @@ R"(
                 return true;
         }
     }
-    int rwlock::lock(int mode, uint64_t timeout)
+    int rwlock::lock(int mode, Timeout timeout)
     {
         if (mode != RLOCK && mode != WLOCK)
             LOG_ERROR_RETURN(EINVAL, -1, "mode unknow");

@@ -21,10 +21,13 @@ limitations under the License.
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <list>
 #include <thread>
 #include <string>
 
 #include <photon/common/alog.h>
+#include <photon/common/alog-stdstring.h>
 #include <photon/thread/thread11.h>
 #include <photon/common/utility.h>
 #include <photon/common/expirecontainer.h>
@@ -60,7 +63,7 @@ IPAddr gethostbypeer(IPAddr remote) {
     return s_local.to_endpoint().addr;
 }
 
-IPAddr gethostbypeer(const char *domain) {
+IPAddr gethostbypeer(std::string_view domain) {
     // get self ip by remote domain instead of ip
     IPAddr remote;
     auto ret = gethostbyname(domain, &remote);
@@ -69,36 +72,39 @@ IPAddr gethostbypeer(const char *domain) {
     return gethostbypeer(remote);
 }
 
-int _gethostbyname(const char* name, Delegate<int, IPAddr> append_op) {
-    assert(name);
-    int idx = 0;
+int _gethostbyname(std::string_view name, Delegate<int, IPAddr> append_op) {
+    if (name.empty()) return -1;
     addrinfo* result = nullptr;
     addrinfo hints = {};
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_ALL | AI_V4MAPPED;
     hints.ai_family = AF_UNSPEC;
 
-    int ret = getaddrinfo(name, nullptr, &hints, &result);
+    std::string _name(name);
+    int ret = getaddrinfo(_name.c_str(), nullptr, &hints, &result);
     if (ret != 0) {
         LOG_ERROR_RETURN(0, -1, "Fail to getaddrinfo: `", gai_strerror(ret));
     }
     assert(result);
+    int cnt = 0;
     for (auto* cur = result; cur != nullptr; cur = cur->ai_next) {
+        IPAddr addr;
         if (cur->ai_family == AF_INET6) {
             auto sock_addr = (sockaddr_in6*) cur->ai_addr;
-            if (append_op(IPAddr(sock_addr->sin6_addr)) < 0) {
-                break;
-            }
-            idx++;
+            addr = IPAddr(sock_addr->sin6_addr);
         } else if (cur->ai_family == AF_INET) {
             auto sock_addr = (sockaddr_in*) cur->ai_addr;
-            if (append_op(IPAddr(sock_addr->sin_addr)) < 0) {
-                break;
-            }
-            idx++;
+            addr = IPAddr(sock_addr->sin_addr);
+        } else {
+            LOG_DEBUG("skip unsupported address family ", cur->ai_family);
+            continue;
         }
+        // LOG_DEBUG(VALUE(addr));
+        if (append_op(addr) < 0) break;
+        cnt++;
     }
     freeaddrinfo(result);
-    return idx;
+    return cnt;
 }
 
 struct xlator {
@@ -249,49 +255,74 @@ bool Base64Decode(std::string_view in, std::string &out) {
 }
 
 class DefaultResolver : public Resolver {
+protected:
+    struct IPAddrNode : public intrusive_list_node<IPAddrNode> {
+        IPAddr addr;
+        IPAddrNode(IPAddr addr) : addr(addr) {}
+    };
+    using IPAddrList = intrusive_list<IPAddrNode>;
 public:
     DefaultResolver(uint64_t cache_ttl, uint64_t resolve_timeout)
         : dnscache_(cache_ttl), resolve_timeout_(resolve_timeout) {}
-    ~DefaultResolver() { dnscache_.clear(); }
-
-    IPAddr resolve(const char *host) override {
-        auto ctr = [&]() -> IPAddr * {
-            std::vector<IPAddr> addrs;
-            photon::semaphore sem;
-            std::thread([&]() {
-                int ret = gethostbyname(host, addrs);
-                if (ret < 0) {
-                    addrs.clear();
-                }
-                sem.signal(1);
-            }).detach();
-            auto ret = sem.wait(1, resolve_timeout_);
-            if (ret < 0 && errno == ETIMEDOUT) {
-                LOG_WARN("Domain resolution for ` timeout!", host);
-                return new IPAddr;  // undefined addr
-            } else if (addrs.empty()) {
-                LOG_WARN("Domain resolution for ` failed", host);
-                return new IPAddr;  // undefined addr
-            }
-            // TODO: support ipv6
-            for (auto& ip : addrs) {
-                if (ip.is_ipv4())
-                    return new IPAddr(ip);
-            }
-            return new IPAddr;      // undefined addr
-        };
-        return *(dnscache_.borrow(host, ctr));
+    ~DefaultResolver() {
+        for (auto it : dnscache_) {
+            ((IPAddrList*)it->_obj)->delete_all();
+        }
+        dnscache_.clear();
     }
 
-    void resolve(const char *host, Delegate<void, IPAddr> func) override { func(resolve(host)); }
+    IPAddr resolve(std::string_view host) override {
+        auto ctr = [&]() -> IPAddrList* {
+            auto addrs = new IPAddrList();
+            photon::semaphore sem;
+            std::thread([&]() {
+                auto now = std::chrono::steady_clock::now();
+                IPAddrList ret;
+                auto cb = [&](IPAddr addr) {
+                    ret.push_back(new IPAddrNode(addr));
+                    return 0;
+                };
+                _gethostbyname(host, cb);
+                auto time_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now() - now).count();
+                if ((uint64_t)time_elapsed <= resolve_timeout_) {
+                    addrs->push_back(std::move(ret));
+                    sem.signal(1);
+                } else {
+                    LOG_ERROR("resolve timeout");
+                    while(!ret.empty())
+                        delete ret.pop_front();
+                }
+            }).detach();
+            sem.wait(1, resolve_timeout_);
+            return addrs;
+        };
+        auto ips = dnscache_.borrow(host, ctr);
+        if (ips->empty()) LOG_ERRNO_RETURN(0, IPAddr(), "Domain resolution for '`' failed", host);
+        auto ret = ips->front();
+        ips->node = ret->next();  // access in round robin order
+        return ret->addr;
+    }
 
-    void discard_cache(const char *host) override {
+    void resolve(std::string_view host, Delegate<void, IPAddr> func) override {
+        func(resolve(host));
+    }
+
+    void discard_cache(std::string_view host, IPAddr ip) override {
         auto ipaddr = dnscache_.borrow(host);
-        ipaddr.recycle(true);
+        if (ip.undefined() || ipaddr->empty()) ipaddr.recycle(true);
+        else {
+            for (auto itr = ipaddr->rbegin(); itr != ipaddr->rend(); itr++) {
+                if ((*itr)->addr == ip) {
+                    ipaddr->erase(*itr);
+                    break;
+                }
+            }
+        }
     }
 
 private:
-    ObjectCache<std::string, IPAddr *> dnscache_;
+    ObjectCache<std::string, IPAddrList*> dnscache_;
     uint64_t resolve_timeout_;
 };
 

@@ -147,19 +147,19 @@ public:
         m_stat.st_size = len;
         return 0;
     }
-    void send_read_request(net::http::Client::Operation &op, off_t offset, size_t length, const Timeout &tmo) {
-    again:
+    void send_read_request(net::http::Client::Operation &op, off_t offset, size_t length, Timeout tmo) {
         estring url;
         url.appends(m_url, "?", m_url_param);
-        op.req.reset(net::http::Verb::GET, url);
         op.set_enable_proxy(m_fs->get_client()->has_proxy());
+    again:
+        op.req.reset(net::http::Verb::GET, url, op.enable_proxy);
         op.req.headers.merge(m_common_header);
         op.req.headers.range(offset, offset + length - 1);
         op.req.headers.content_length(0);
-        op.timeout = tmo.timeout();
+        op.timeout = tmo;
         m_fs->get_client()->call(&op);
         if (op.status_code < 0) {
-            if (tmo.timeout() == 0) {
+            if (tmo.expired()) {
                 m_etimeout = true;
                 LOG_ERROR_RETURN(ENOENT, , "http timedout");
             }
@@ -230,7 +230,9 @@ public:
 
     //TODO: 这里是否需要考虑m_common_header被打爆的问题？
     void add_header(va_list args) {
-        m_common_header.insert(va_arg(args, const char*), va_arg(args, const char*));
+        auto k = va_arg(args, const char*);
+        auto v = va_arg(args, const char*);
+        m_common_header.insert(k, v);
     }
 
     void add_url_param(va_list args) { m_url_param = va_arg(args, const char*); }
@@ -252,7 +254,7 @@ public:
     }
 };
 
-IFile* HttpFs_v2::open(const char* pathname, int flags) {
+inline IFile* HttpFs_v2::open(const char* pathname, int flags) {
     if (!pathname) LOG_ERROR_RETURN(EINVAL, nullptr, "NULL is not allowed");
     if (flags != O_RDONLY) return nullptr;
 

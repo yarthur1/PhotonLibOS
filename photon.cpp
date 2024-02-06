@@ -19,9 +19,13 @@ limitations under the License.
 #include "io/fd-events.h"
 #include "io/signal.h"
 #include "io/aio-wrapper.h"
+#include "thread/thread.h"
+#include "thread/thread-pool.h"
+#include "thread/stack-allocator.h"
 #ifdef ENABLE_FSTACK_DPDK
 #include "io/fstack-dpdk.h"
 #endif
+#include "io/reset_handle.h"
 #include "net/curl.h"
 #include "net/socket.h"
 #include "fs/exportfs.h"
@@ -31,19 +35,27 @@ namespace photon {
 using namespace fs;
 using namespace net;
 
+static bool reset_handle_registed = false;
 static thread_local uint64_t g_event_engine = 0, g_io_engine = 0;
 
-#define INIT_IO(name, prefix)    if (INIT_IO_##name & io_engine) { if (prefix##_init() < 0) return -1; }
+#define INIT_IO(name, prefix, ...)    if (INIT_IO_##name & io_engine) { if (prefix##_init(__VA_ARGS__) < 0) return -1; }
 #define FINI_IO(name, prefix)    if (INIT_IO_##name & g_io_engine) { prefix##_fini(); }
 
 // Try to init master engine with the recommended order
 #if defined(__linux__)
-static const int recommended_order[] = {INIT_EVENT_EPOLL, INIT_EVENT_IOURING, INIT_EVENT_SELECT};
+static const int recommended_order[] = {INIT_EVENT_EPOLL, INIT_EVENT_IOURING, INIT_EVENT_EPOLL_NG, INIT_EVENT_SELECT};
 #else   // macOS, FreeBSD ...
 static const int recommended_order[] = {INIT_EVENT_KQUEUE, INIT_EVENT_SELECT};
 #endif
 
-int init(uint64_t event_engine, uint64_t io_engine) {  // io_engine代表啥
+int init(uint64_t event_engine, uint64_t io_engine, const PhotonOptions& options) {  // io_engine代表啥
+    if (options.use_pooled_stack_allocator) {
+        use_pooled_stack_allocator();
+    }
+    if (options.bypass_threadpool) {
+        set_bypass_threadpool(true);
+    }
+
     if (vcpu_init() < 0)
         return -1;
 
@@ -69,11 +81,16 @@ int init(uint64_t event_engine, uint64_t io_engine) {  // io_engine代表啥
     INIT_IO(EXPORTFS, exportfs)    // exportfs_init 作用？
     INIT_IO(LIBCURL, libcurl)      // libcurl_init
 #ifdef __linux__
-    INIT_IO(LIBAIO, libaio_wrapper)   // libaio_wrapper_init()
-    INIT_IO(SOCKET_EDGE_TRIGGER, et_poller)   // et_poller_init()
+    INIT_IO(LIBAIO, libaio_wrapper, options.libaio_queue_depth)   // libaio_wrapper_init()
+    INIT_IO(SOCKET_EDGE_TRIGGER, et_poller)       // et_poller_init()
 #endif
     g_event_engine = event_engine;
     g_io_engine = io_engine;
+    if (!reset_handle_registed) {
+        pthread_atfork(nullptr, nullptr, &reset_all_handle);
+        LOG_DEBUG("reset_all_handle registed ", VALUE(getpid()));
+        reset_handle_registed = true;
+    }
     return 0;
 }
 

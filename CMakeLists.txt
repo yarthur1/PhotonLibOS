@@ -45,8 +45,8 @@ if (NOT (${ARCH} STREQUAL x86_64) AND NOT (${ARCH} STREQUAL aarch64) AND NOT (${
 endif ()
 ProcessorCount(NumCPU)
 
-# Compiler options
-add_compile_options(-Wall)  # -Werror is not enable yet
+# Global compiler options, only effective within this project
+add_compile_options(-Wall -Werror -Wno-error=pragmas)
 
 set(CMAKE_CXX_STANDARD ${PHOTON_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -67,9 +67,11 @@ elseif (${ARCH} STREQUAL aarch64)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=generic+crc -fsigned-char -fno-stack-protector -fomit-frame-pointer")
 endif ()
 
-check_cxx_compiler_flag(-mcrc32 COMPILER_HAS_MCRC32_FLAG)
-if (COMPILER_HAS_MCRC32_FLAG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcrc32")
+if (${ARCH} STREQUAL x86_64)
+    check_cxx_compiler_flag(-mcrc32 COMPILER_HAS_MCRC32_FLAG)
+    if (COMPILER_HAS_MCRC32_FLAG)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcrc32")
+    endif ()
 endif ()
 
 set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
@@ -166,6 +168,7 @@ file(GLOB PHOTON_SRC
         fs/xfile.cpp
         fs/httpfs/*.cpp
         io/signal.cpp
+        io/reset_handle.cpp
         net/*.cpp
         net/http/*.cpp
         net/security-context/tls-stream.cpp
@@ -175,7 +178,7 @@ file(GLOB PHOTON_SRC
 if (APPLE)
     list(APPEND PHOTON_SRC io/kqueue.cpp)
 else ()
-    list(APPEND PHOTON_SRC io/aio-wrapper.cpp io/epoll.cpp)
+    list(APPEND PHOTON_SRC io/aio-wrapper.cpp io/epoll.cpp io/epoll-ng.cpp)
     if (PHOTON_ENABLE_URING)
         list(APPEND PHOTON_SRC io/iouring-wrapper.cpp)
     endif ()
@@ -211,7 +214,7 @@ if (PHOTON_ENABLE_FSTACK_DPDK)
     target_include_directories(photon_obj PRIVATE ${FSTACK_INCLUDE_DIRS})
 endif()
 if (PHOTON_ENABLE_EXTFS)
-    target_include_directories(photon_obj PRIVATE ${LIBE2FS_INCLUDE_DIRS})
+    target_include_directories(photon_obj PRIVATE ${E2FS_INCLUDE_DIRS})
 endif()
 if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8.0)
     # This option is enabled by default after -std=c++17

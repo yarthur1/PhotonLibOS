@@ -101,6 +101,8 @@ public:
             case TLSVersion::SSL23:
                 method = SSLv23_method();
                 break;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             case TLSVersion::TLS11:
                 method = TLSv1_1_method();
                 break;
@@ -109,6 +111,7 @@ public:
                 break;
             default:
                 method = TLSv1_2_method();
+#pragma GCC diagnostic pop
         }
         ctx = SSL_CTX_new(method);
         if (ctx == nullptr) {
@@ -128,7 +131,7 @@ public:
         return strlen(buf);
     }
     int set_pass_phrase(const char* pass) override {
-        strncpy(pempassword, pass, sizeof(pempassword));
+        strncpy(pempassword, pass, sizeof(pempassword)-1);
         return strlen(pempassword);
     }
     int set_cert(const char* cert_str) override {
@@ -356,31 +359,29 @@ public:
     }
 
     ssize_t write(const void* buf, size_t cnt) override {
-        return doio_n((void*&)buf, cnt,
-                      [&]() __INLINE__ { return send(buf, cnt); });
+        return DOIO_LOOP(send(buf, cnt), BufStep((void*&)buf, cnt));
     }
 
     ssize_t writev(const struct iovec* iov, int iovcnt) override {
         if (iovcnt == 1) return write(iov->iov_base, iov->iov_len);
         SmartCloneIOV<32> ciov(iov, iovcnt);
         iovector_view v(ciov.ptr, iovcnt);
-        return doiov_n(v, [&] { return send(v.iov, v.iovcnt); });
+        return DOIO_LOOP(send(v.iov, v.iovcnt), BufStepV(v));
     }
 
     ssize_t read(void* buf, size_t cnt) override {
-        return doio_n((void*&)buf, cnt,
-                      [&]() __INLINE__ { return recv(buf, cnt); });
+        return DOIO_LOOP(recv(buf, cnt), BufStep((void*&)buf, cnt));
     }
 
     ssize_t readv(const struct iovec* iov, int iovcnt) override {
         if (iovcnt == 1) return read(iov->iov_base, iov->iov_len);
         SmartCloneIOV<32> ciov(iov, iovcnt);
         iovector_view v(ciov.ptr, iovcnt);
-        return doiov_n(v, [&] { return recv(v.iov, v.iovcnt); });
+        return DOIO_LOOP(recv(v.iov, v.iovcnt), BufStepV(v));
     }
 
     ssize_t sendfile(int fd, off_t offset, size_t count) override {
-        return sendfile_fallback(this, fd, offset, count);
+        return sendfile_n(this, fd, offset, count);
     }
 
     int shutdown(ShutdownHow) override { return SSL_shutdown(ssl); }
@@ -415,8 +416,8 @@ public:
                               SecurityRole::Client, true);
     }
 
-    virtual ISocketStream* connect(EndPoint remote,
-                                   EndPoint local = EndPoint()) override {
+    virtual ISocketStream* connect(const EndPoint& remote,
+                                   const EndPoint* local) override {
         return new_tls_stream(ctx, m_underlay->connect(remote, local),
                               SecurityRole::Client, true);
     }
