@@ -229,9 +229,9 @@ namespace rpc
         {
         }
         template<typename AR, typename T, typename...Ts>
-        void reduce(AR& ar, T& x, Ts&...xs)
+        void reduce(AR& ar, T& x, Ts&...xs)   // 引用类型
         {
-            ar.process_field(x);
+            ar.process_field(x);   // 依赖传入的ar如何处理field
             reduce(ar, xs...);   // 递归处理field
         }
     };
@@ -354,10 +354,10 @@ namespace rpc
     struct _FilterAlignedFields
     {
         T* _obj;
-        bool _flag;   // 非对齐，不做处理
-        void process_field(aligned_buffer& x)
+        bool _flag;
+        void process_field(aligned_buffer& x)  // 字段为对齐字段
         {
-            if (_flag)
+            if (_flag)   // flag true并且x为对齐时处理
                 _obj->process_field((buffer&)x);
         }
         void process_field(aligned_iovec_array& x)
@@ -366,9 +366,9 @@ namespace rpc
                 _obj->process_field((iovec_array&)x);
         }
         template<typename P>
-        void process_field(P& x)
+        void process_field(P& x)  // 字段为非对齐字段 aligned_buffer aligned_iovec_array
         {
-            if (!_flag)
+            if (!_flag)  // x为非对齐并且flag也为false
                 _obj->process_field(x);
         }
     };
@@ -385,7 +385,7 @@ namespace rpc
         IOVector iov;
         bool iovfull = false;
 
-        using ArchiveBase<SerializerIOV>::process_field;
+        using ArchiveBase<SerializerIOV>::process_field;  // 明确使用基类的process_field
 
         void process_field(buffer& x)
         {
@@ -416,12 +416,12 @@ namespace rpc
                 "only Messages are permitted");
 
             // serialize aligned fields, non-aligned fields, and the main body
-            auto aligned = FilterAlignedFields(this, true);
+            auto aligned = FilterAlignedFields(this, true);  // 获取align AR，接下来处理align 字段
             x.process_fields(aligned);   // __example__operation1__ reduce(ar,..xs) xs有哪些字段由T类型定义process_fields指定, ar.process_field(x);
             auto non_aligned = FilterAlignedFields(this, false);
-            x.process_fields(non_aligned);
+            x.process_fields(non_aligned);  // 处理非align 字段
             buffer msg(&x, sizeof(x));
-            d()->process_field(msg);   // 调用这个类定义的process_field
+            d()->process_field(msg);   // 序列化这个结构本身，调用这个类定义的process_field
             x.add_checksum(&iov);
         }
     };
@@ -434,7 +434,7 @@ namespace rpc
 
         using ArchiveBase<DeserializerIOV>::process_field;
 
-        void process_field(buffer& x)
+        void process_field(buffer& x)   // 覆盖掉从using继承来的方法
         {
             if (x.size()==0)
                 return;

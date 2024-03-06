@@ -277,7 +277,7 @@ namespace rpc
         struct Request : public Message
         {
             int x;
-            PROCESS_FIELDS(x);
+            PROCESS_FIELDS(x);  // 依赖传入的AR依次对字段进行处理
         };
         struct Response : public Message
         {

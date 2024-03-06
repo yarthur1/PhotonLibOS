@@ -108,7 +108,7 @@ public:
     constexpr static size_t shift = Capacity_2expN<N>::shift;
     constexpr static size_t lshift = Capacity_2expN<N>::lshift;
 
-    alignas(CACHELINE_SIZE) std::atomic<size_t> tail{0};
+    alignas(CACHELINE_SIZE) std::atomic<size_t> tail{0};  // tail为n不是n-1 ;head tail一直是递增的
     alignas(CACHELINE_SIZE) std::atomic<size_t> head{0};
 
     bool empty() {
@@ -132,7 +132,7 @@ public:
     }
 
 protected:
-    bool check_mask_equal(size_t x, size_t y) const {
+    bool check_mask_equal(size_t x, size_t y) const {   // ??
         return (x << lshift) == (y << lshift);
     }
 
@@ -144,7 +144,7 @@ protected:
 
     size_t idx(size_t x) const { return x & mask; }
 
-    size_t turn(size_t x) const { return x >> shift; }
+    size_t turn(size_t x) const { return x >> shift; }  // 左移shift位相当于除capacity，返回当前第几次
 };
 
 // !!NOTICE: DO NOT USE LockfreeMPMCRingQueue in IPC
@@ -163,11 +163,11 @@ protected:
     std::atomic<uint64_t> marks[Base::capacity]{};
     T slots[Base::capacity];
 
-    uint64_t this_turn_write(const uint64_t x) const {
+    uint64_t this_turn_write(const uint64_t x) const {   // 这次写需要上一次读了数据
         return (Base::turn(x) << 1) + 1;
     }
 
-    uint64_t this_turn_read(const uint64_t x) const {
+    uint64_t this_turn_read(const uint64_t x) const {    // 这次读需要这次已经写数据了
         return (Base::turn(x) << 1) + 2;
     }
 
@@ -221,7 +221,7 @@ public:
         }
     }
 
-    bool push(const T& x) {
+    bool push(const T& x) {  // full push返回false
         do {
             if (push_weak(x)) return true;
         } while (!full());
@@ -275,8 +275,8 @@ protected:
     using Base::idx;
     using Base::tail;  // write_tail
 
-    alignas(Base::CACHELINE_SIZE) std::atomic<uint64_t> write_head;
-    alignas(Base::CACHELINE_SIZE) std::atomic<uint64_t> read_tail;
+    alignas(Base::CACHELINE_SIZE) std::atomic<uint64_t> write_head;   // tail
+    alignas(Base::CACHELINE_SIZE) std::atomic<uint64_t> read_tail;   // head
 
     T slots[Base::capacity];
 
@@ -316,7 +316,7 @@ public:
                            sizeof(T) * (rn - part_length));
                 }
                 auto wh = wt;
-                while (!write_head.compare_exchange_weak(
+                while (!write_head.compare_exchange_weak(   // false时 expect=*this
                     wh, wt + rn, std::memory_order_acq_rel)) {
                     ThreadPause::pause();
                     wh = wt;
