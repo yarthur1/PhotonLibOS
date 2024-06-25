@@ -1211,7 +1211,7 @@ R"(
         assert(!AtomicRunQ(rq).single());
         auto sw = AtomicRunQ(rq).remove_current(states::SLEEPING);   // 设置current sleep并从AtomicRunQ剔除,设置新的current
         if (waitq) {
-            waitq->push_back(sw.from);
+            waitq->push_back(sw.from);  //将加锁的协程插入末尾
             sw.from->waitq = waitq;
         }
         if_update_now(true);
@@ -1570,23 +1570,23 @@ R"(
         }
 
         int ret = thread_usleep_defer(timeout,
-            (thread_list*)&q, &spinlock_unlock, &splock);
+            (thread_list*)&q, &spinlock_unlock, &splock);  //将当前协程放到mutex的waitq列表，切到当前线程的下一个协程去执行
         return waitq_translate_errno(ret);
     }
     int mutex::try_lock()
     {
         thread* ptr = nullptr;
         bool ret = owner.compare_exchange_strong(ptr, CURRENT,
-            std::memory_order_acq_rel, std::memory_order_relaxed);
+            std::memory_order_acq_rel, std::memory_order_relaxed);   //没有lock直接加锁
         return (int)ret - 1;
     }
     inline void do_mutex_unlock(mutex* m)
     {
         SCOPED_LOCK(m->splock);
-        ScopedLockHead h(m);
-        m->owner.store(h);
+        ScopedLockHead h(m);  //获取到等待锁的第一个协程
+        m->owner.store(h);  //更改锁的owner
         if (h)
-            prelocked_thread_interrupt(h, ECANCELED);
+            prelocked_thread_interrupt(h, ECANCELED);  //将当前协程从waitq中删除  waitq等待锁的协程列表
     }
     static void mutex_unlock(void* m_)
     {
